@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Looker Health Diagnostic Assistant</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const { createRoot } = ReactDOM;
+
+        // Simple icon components to replace Lucide
+        const Activity = ({ className }) => <div className={`${className} flex items-center justify-center`}>📊</div>;
+        const AlertTriangle = ({ className }) => <div className={`${className} flex items-center justify-center`}>⚠️</div>;
+        const CheckCircle = ({ className }) => <div className={`${className} flex items-center justify-center`}>✅</div>;
+        const Clock = ({ className }) => <div className={`${className} flex items-center justify-center`}>⏰</div>;
+        const Database = ({ className }) => <div className={`${className} flex items-center justify-center`}>🗄️</div>;
+        const TrendingUp = ({ className }) => <div className={`${className} flex items-center justify-center`}>📈</div>;
+        const Users = ({ className }) => <div className={`${className} flex items-center justify-center`}>👥</div>;
+        const Zap = ({ className }) => <div className={`${className} flex items-center justify-center`}>⚡</div>;
+        const Target = ({ className }) => <div className={`${className} flex items-center justify-center`}>🎯</div>;
+        const BookOpen = ({ className }) => <div className={`${className} flex items-center justify-center`}>📖</div>;
+        const Shield = ({ className }) => <div className={`${className} flex items-center justify-center`}>🛡️</div>;
+
+        const LookerHealthDashboard = () => {
+          const [diagnosticResults, setDiagnosticResults] = useState(null);
+          const [isRunning, setIsRunning] = useState(false);
+          const [selectedTab, setSelectedTab] = useState('overview');
+          const [analysisModal, setAnalysisModal] = useState(null);
+          const [loadingAnalysis, setLoadingAnalysis] = useState(false);
+          const [error, setError] = useState(null);
+
+          const runDiagnostic = async () => {
+            setIsRunning(true);
+            setError(null);
+            
+            try {
+              const response = await fetch('/api/diagnostic/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+              });
+              
+              if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+              }
+              
+              const data = await response.json();
+              
+              // Validate the response structure
+              if (!data || typeof data !== 'object') {
+                throw new Error('Invalid response structure from API');
+              }
+              
+              // Ensure healthMetrics exists with defaults
+              if (!data.healthMetrics) {
+                data.healthMetrics = {
+                  performance: 0,
+                  governance: 0,
+                  usage: 0,
+                  dataQuality: 0,
+                  security: 0
+                };
+              }
+
+              // Ensure other required fields exist
+              if (!data.detailedIssues) data.detailedIssues = [];
+              if (!data.issuesByType) data.issuesByType = { performance: 0, governance: 0, usage: 0, dataQuality: 0, security: 0 };
+              if (!data.aiRecommendations) data.aiRecommendations = { priorities: [], strategicRecommendations: [] };
+              if (typeof data.totalIssuesFound === 'undefined') data.totalIssuesFound = 0;
+              if (!data.overallGrade) data.overallGrade = 'F';
+              if (!data.timestamp) data.timestamp = new Date().toISOString();
+              
+              // Get the Looker base URL (remove process.env reference for browser)
+              const lookerBaseUrl = 'https://doitpartner.cloud.looker.com'; // Use your actual URL
+              
+              // Enhance the data with interactive features if AI recommendations exist
+              if (data.aiRecommendations && data.aiRecommendations.priorities) {
+                data.aiRecommendations.priorities = data.aiRecommendations.priorities.map((priority, index) => ({
+                  ...priority,
+                  // Add related dashboards from the issues
+                  relatedDashboards: data.detailedIssues
+                    ? data.detailedIssues
+                        .filter(issue => issue.type === 'performance' || issue.type === 'governance')
+                        .slice(0, 5)
+                        .map(issue => ({
+                          id: issue.dashboard ? issue.dashboard.replace(/\s+/g, '_').toLowerCase() : 'unknown',
+                          title: issue.dashboard || 'Unknown Dashboard',
+                          url: `${lookerBaseUrl}/dashboards/${issue.dashboard ? issue.dashboard.replace(/\s+/g, '_').toLowerCase() : 'unknown'}`,
+                          issue: issue.issue || 'No issue description'
+                        }))
+                    : [],
+                  // Add slow queries if this is a performance-related priority
+                  slowQueries: priority.includesQueryOptimization && data.queryAnalysis ? 
+                    data.queryAnalysis.slice(0, 3).map(q => ({
+                      id: q.queryId || 'unknown',
+                      runtime: q.runtime || 0,
+                      dashboard: q.queryId || 'unknown'
+                    })) : [],
+                  // Add LookML files for governance issues
+                  lookmlFiles: priority.title && priority.title.toLowerCase().includes('lookml') ? [
+                    { name: 'sales_metrics.view', issues: ['deprecated_field_usage', 'missing_descriptions'] },
+                    { name: 'customer_analytics.dashboard', issues: ['missing_dimension_description'] }
+                  ] : []
+                }));
+              }
+              
+              setDiagnosticResults(data);
+            } catch (error) {
+              console.error('Diagnostic failed:', error);
+              setError(error.message);
+              setDiagnosticResults({
+                error: true,
+                message: error.message,
+                healthMetrics: {
+                  performance: 0,
+                  governance: 0,
+                  usage: 0,
+                  dataQuality: 0,
+                  security: 0
+                },
+                totalIssuesFound: 0,
+                overallGrade: 'F',
+                detailedIssues: [],
+                issuesByType: { performance: 0, governance: 0, usage: 0, dataQuality: 0, security: 0 },
+                aiRecommendations: {
+                  priorities: [],
+                  strategicRecommendations: []
+                },
+                timestamp: new Date().toISOString()
+              });
+            } finally {
+              setIsRunning(false);
+            }
+          };
+
+          const analyzeQueries = async (priority) => {
+            if (!priority.slowQueries || priority.slowQueries.length === 0) return;
+            
+            setLoadingAnalysis(true);
+            try {
+              // Simulate API call - replace with actual endpoint
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              
+              const mockAnalysis = {
+                queries: priority.slowQueries.map(q => ({
+                  id: q.id,
+                  runtime: q.runtime,
+                  issues: [
+                    { type: 'inefficient_select', description: 'Query uses SELECT * which fetches unnecessary columns', severity: 'medium' },
+                    { type: 'missing_indexes', description: 'Complex joins without proper indexing', severity: 'high' }
+                  ],
+                  recommendations: [
+                    { action: 'Add composite index on (customer_id, date_created)', expectedImprovement: '60-75% faster execution', effort: 'medium' },
+                    { action: 'Specify only required columns in SELECT', expectedImprovement: '20-40% faster execution', effort: 'low' }
+                  ],
+                  lookmlSuggestions: [
+                    { suggestion: 'Implement incremental PDTs', reason: 'Reduces computation time for large datasets' }
+                  ]
+                }))
+              };
+              
+              setAnalysisModal({
+                type: 'query',
+                title: `Query Analysis - ${priority.title}`,
+                content: mockAnalysis
+              });
+            } catch (error) {
+              setAnalysisModal({
+                type: 'error',
+                title: 'Analysis Failed',
+                content: { error: 'Failed to analyze queries. Please try again.' }
+              });
+            } finally {
+              setLoadingAnalysis(false);
+            }
+          };
+
+          const analyzeLookML = async (priority) => {
+            if (!priority.lookmlFiles || priority.lookmlFiles.length === 0) return;
+            
+            setLoadingAnalysis(true);
+            try {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              
+              const mockAnalysis = {
+                files: priority.lookmlFiles.map(file => ({
+                  name: file.name,
+                  issues: file.issues,
+                  recommendations: [
+                    'Add comprehensive dimension descriptions',
+                    'Update to modern LookML syntax',
+                    'Implement proper data validation'
+                  ],
+                  bestPracticeScore: Math.floor(Math.random() * 3) + 7
+                }))
+              };
+              
+              setAnalysisModal({
+                type: 'lookml',
+                title: `LookML Analysis - ${priority.title}`,
+                content: mockAnalysis
+              });
+            } catch (error) {
+              setAnalysisModal({
+                type: 'error',
+                title: 'Analysis Failed',
+                content: { error: 'Failed to analyze LookML. Please try again.' }
+              });
+            } finally {
+              setLoadingAnalysis(false);
+            }
+          };
+
+          const getHealthColor = (score) => {
+            if (score >= 80) return 'text-green-600';
+            if (score >= 60) return 'text-yellow-600';
+            return 'text-red-600';
+          };
+
+          const getHealthBgColor = (score) => {
+            if (score >= 80) return 'bg-green-100';
+            if (score >= 60) return 'bg-yellow-100';
+            return 'bg-red-100';
+          };
+
+          const getSeverityColor = (severity) => {
+            switch (severity) {
+              case 'high': return 'bg-red-100 text-red-800';
+              case 'medium': return 'bg-yellow-100 text-yellow-800';
+              case 'low': return 'bg-blue-100 text-blue-800';
+              default: return 'bg-gray-100 text-gray-800';
+            }
+          };
+
+          const HealthMetricCard = ({ title, score = 0, icon: Icon, description }) => (
+            <div className={`p-6 rounded-lg border-2 ${getHealthBgColor(score)} border-gray-200`}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center space-x-2">
+                  <Icon className={`w-5 h-5 ${getHealthColor(score)}`} />
+                  <h3 className="font-semibold text-gray-700">{title}</h3>
+                </div>
+                <span className={`text-2xl font-bold ${getHealthColor(score)}`}>
+                  {score}/100
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className={`h-2 rounded-full ${score >= 80 ? 'bg-green-500' : score >= 60 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                  style={{ width: `${score}%` }}
+                />
+              </div>
+              <p className="text-sm text-gray-600 mt-2">{description}</p>
+            </div>
+          );
+
+          const PriorityCard = ({ priority }) => (
+            <div className="border-l-4 border-purple-500 pl-6 mb-8">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <span className="bg-purple-100 text-purple-800 text-xs font-medium px-2 py-1 rounded-full">
+                      Priority #{priority.priority}
+                    </span>
+                  </div>
+                  <h4 className="text-lg font-semibold text-gray-800 mb-2">{priority.title}</h4>
+                  <p className="text-gray-600 mb-3">{priority.description}</p>
+                </div>
+                
+                {/* Action Buttons */}
+                <div className="flex flex-col space-y-2 ml-4">
+                  {priority.includesQueryOptimization && priority.slowQueries && priority.slowQueries.length > 0 && (
+                    <button
+                      onClick={() => analyzeQueries(priority)}
+                      disabled={loadingAnalysis}
+                      className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded flex items-center space-x-1 disabled:opacity-50 transition-colors"
+                    >
+                      <span>🔍</span>
+                      <span>Query AI</span>
+                    </button>
+                  )}
+                  
+                  {priority.lookmlFiles && priority.lookmlFiles.length > 0 && (
+                    <button
+                      onClick={() => analyzeLookML(priority)}
+                      disabled={loadingAnalysis}
+                      className="bg-green-500 hover:bg-green-600 text-white text-xs px-3 py-1 rounded flex items-center space-x-1 disabled:opacity-50 transition-colors"
+                    >
+                      <span>🏗️</span>
+                      <span>LookML AI</span>
+                    </button>
+                  )}
+                  
+                  {priority.relatedDashboards && priority.relatedDashboards.length > 0 && (
+                    <div className="relative">
+                      <select 
+                        className="bg-gray-500 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded cursor-pointer transition-colors"
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            window.open(e.target.value, '_blank');
+                            e.target.value = '';
+                          }
+                        }}
+                        defaultValue=""
+                      >
+                        <option value="" disabled>📊 Dashboards</option>
+                        {priority.relatedDashboards.map(dashboard => (
+                          <option key={dashboard.id} value={dashboard.url}>
+                            {dashboard.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Impact/Effort/Timeline Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div className="bg-green-50 p-3 rounded">
+                  <span className="font-medium text-green-800">Impact:</span>
+                  <span className="ml-1 text-green-700">{priority.estimatedImpact || 'Unknown'}</span>
+                </div>
+                <div className="bg-blue-50 p-3 rounded">
+                  <span className="font-medium text-blue-800">Effort:</span>
+                  <span className="ml-1 text-blue-700">{priority.estimatedEffort || 'Unknown'}</span>
+                </div>
+                <div className="bg-orange-50 p-3 rounded">
+                  <span className="font-medium text-orange-800">Timeline:</span>
+                  <span className="ml-1 text-orange-700">{priority.timeframe || 'Unknown'}</span>
+                </div>
+              </div>
+              
+              {/* Related Items Summary */}
+              {(priority.slowQueries?.length > 0 || priority.lookmlFiles?.length > 0 || priority.relatedDashboards?.length > 0) && (
+                <div className="mt-4 p-3 bg-gray-50 rounded text-sm">
+                  <div className="flex flex-wrap gap-4">
+                    {priority.slowQueries?.length > 0 && (
+                      <span className="text-gray-600">
+                        🐌 {priority.slowQueries.length} slow queries
+                      </span>
+                    )}
+                    {priority.lookmlFiles?.length > 0 && (
+                      <span className="text-gray-600">
+                        🏗️ {priority.lookmlFiles.length} LookML files
+                      </span>
+                    )}
+                    {priority.relatedDashboards?.length > 0 && (
+                      <span className="text-gray-600">
+                        📊 {priority.relatedDashboards.length} dashboards affected
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+
+          const AnalysisModal = () => {
+            if (!analysisModal) return null;
+
+            return (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-lg max-w-4xl w-full max-h-[80vh] overflow-hidden">
+                  <div className="flex items-center justify-between p-6 border-b">
+                    <h2 className="text-xl font-semibold">{analysisModal.title}</h2>
+                    <button 
+                      onClick={() => setAnalysisModal(null)}
+                      className="text-gray-400 hover:text-gray-600 text-2xl"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  
+                  <div className="p-6 overflow-y-auto max-h-[60vh]">
+                    {analysisModal.type === 'error' ? (
+                      <div className="text-red-600 text-center py-8">
+                        {analysisModal.content.error}
+                      </div>
+                    ) : analysisModal.type === 'query' ? (
+                      <QueryAnalysisContent analysis={analysisModal.content} />
+                    ) : (
+                      <LookMLAnalysisContent analysis={analysisModal.content} />
+                    )}
+                  </div>
+                  
+                  <div className="flex justify-end p-6 border-t space-x-3">
+                    <button 
+                      onClick={() => setAnalysisModal(null)}
+                      className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
+                    >
+                      Close
+                    </button>
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(JSON.stringify(analysisModal.content, null, 2));
+                      }}
+                      className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    >
+                      Copy Analysis
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          };
+
+          const QueryAnalysisContent = ({ analysis }) => (
+            <div className="space-y-6">
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-blue-800 mb-2">🔍 Query Performance Analysis</h3>
+                <p className="text-blue-700">AI-powered analysis of slow-running queries with optimization recommendations.</p>
+              </div>
+              
+              {analysis.queries && analysis.queries.map((query, index) => (
+                <div key={index} className="border rounded-lg p-4">
+                  <div className="flex justify-between items-start mb-3">
+                    <h4 className="font-medium">Query: {query.id}</h4>
+                    <span className="bg-red-100 text-red-800 text-xs px-2 py-1 rounded">{query.runtime}s runtime</span>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <h5 className="font-medium text-sm text-gray-700">Issues Identified:</h5>
+                      <ul className="text-sm text-gray-600 ml-4 list-disc">
+                        {query.issues.map((issue, i) => (
+                          <li key={i}>{issue.description}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <h5 className="font-medium text-sm text-gray-700">AI Recommendations:</h5>
+                      <ul className="text-sm text-green-700 ml-4 list-disc">
+                        {query.recommendations.map((rec, i) => (
+                          <li key={i}>{rec.action} - {rec.expectedImprovement}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    {query.lookmlSuggestions && query.lookmlSuggestions.length > 0 && (
+                      <div className="bg-green-50 p-3 rounded text-sm">
+                        <strong>LookML Suggestions:</strong>
+                        <ul className="ml-4 list-disc">
+                          {query.lookmlSuggestions.map((suggestion, i) => (
+                            <li key={i}>{suggestion.suggestion} - {suggestion.reason}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+
+          const LookMLAnalysisContent = ({ analysis }) => (
+            <div className="space-y-6">
+              <div className="bg-green-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-green-800 mb-2">🏗️ LookML Code Analysis</h3>
+                <p className="text-green-700">AI-powered analysis of LookML files with best practice recommendations.</p>
+              </div>
+              
+              {analysis.files && analysis.files.map((file, index) => (
+                <div key={index} className="border rounded-lg p-4">
+                  <div className="flex justify-between items-start mb-3">
+                    <h4 className="font-medium">{file.name}</h4>
+                    <span className="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded">{file.issues.length} issues</span>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <h5 className="font-medium text-sm text-gray-700">Issues Found:</h5>
+                      <ul className="text-sm text-gray-600 ml-4 list-disc">
+                        {file.issues.map((issue, i) => (
+                          <li key={i}>{issue.replace(/_/g, ' ')}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <h5 className="font-medium text-sm text-gray-700">Recommended Fixes:</h5>
+                      <ul className="text-sm text-blue-700 ml-4 list-disc">
+                        {file.recommendations.map((rec, i) => (
+                          <li key={i}>{rec}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="bg-blue-50 p-3 rounded text-sm">
+                      <strong>Best Practice Score:</strong> {file.bestPracticeScore}/10
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+
+          // Error state
+          if (error && !diagnosticResults) {
+            return (
+              <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                <div className="text-center max-w-md">
+                  <AlertTriangle className="w-20 h-20 text-red-500 mx-auto mb-6" />
+                  <h1 className="text-2xl font-bold text-gray-800 mb-4">
+                    Diagnostic Failed
+                  </h1>
+                  <p className="text-gray-600 mb-6">
+                    {error}
+                  </p>
+                  <button
+                    onClick={runDiagnostic}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          if (isRunning) {
+            return (
+              <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="animate-pulse">
+                    <Activity className="w-16 h-16 text-blue-500 mx-auto mb-4" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-800 mb-2">Running Health Diagnostic</h2>
+                  <p className="text-gray-600 mb-4">Analyzing your Looker instance via MCP connection...</p>
+                  <div className="space-y-2">
+                    <div className="bg-blue-100 p-2 rounded text-sm">🔌 Connecting to Looker MCP Server...</div>
+                    <div className="bg-blue-100 p-2 rounded text-sm">📊 Fetching dashboard metadata...</div>
+                    <div className="bg-blue-100 p-2 rounded text-sm">🤖 Running AI analysis with Gemini...</div>
+                    <div className="bg-blue-100 p-2 rounded text-sm">📋 Generating recommendations...</div>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          if (!diagnosticResults) {
+            return (
+              <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                <div className="text-center max-w-md">
+                  <Activity className="w-20 h-20 text-blue-500 mx-auto mb-6" />
+                  <h1 className="text-3xl font-bold text-gray-800 mb-4">
+                    Looker Health Diagnostic Assistant
+                  </h1>
+                  <p className="text-gray-600 mb-6">
+                    AI-powered analysis of your Looker dashboards using MCP integration. 
+                    Get insights on performance, governance, usage patterns, and data quality.
+                  </p>
+                  <button
+                    onClick={runDiagnostic}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold flex items-center mx-auto space-x-2"
+                  >
+                    <Zap className="w-5 h-5" />
+                    <span>Run Health Diagnostic</span>
+                  </button>
+                  <div className="mt-6 text-sm text-gray-500">
+                    <p>✅ MCP Toolbox Integration</p>
+                    <p>✅ AI-Powered Recommendations</p>
+                    <p>✅ Comprehensive Health Scoring</p>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="min-h-screen bg-gray-50">
+              {/* Header */}
+              <div className="bg-white shadow-sm border-b">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <Activity className="w-8 h-8 text-blue-600" />
+                      <div>
+                        <h1 className="text-2xl font-bold text-gray-800">Looker Health Diagnostic</h1>
+                        <p className="text-sm text-gray-600">
+                          Last scan: {diagnosticResults.timestamp ? new Date(diagnosticResults.timestamp).toLocaleString() : 'Unknown'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-4">
+                      <div className={`px-4 py-2 rounded-full text-lg font-bold ${
+                        diagnosticResults.overallGrade === 'A' ? 'bg-green-100 text-green-800' :
+                        diagnosticResults.overallGrade === 'B' ? 'bg-blue-100 text-blue-800' :
+                        diagnosticResults.overallGrade === 'C' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-red-100 text-red-800'
+                      }`}>
+                        Grade: {diagnosticResults.overallGrade || 'N/A'}
+                      </div>
+                      <button
+                        onClick={runDiagnostic}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                      >
+                        Re-run Diagnostic
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Navigation Tabs */}
+              <div className="bg-white border-b">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <nav className="flex space-x-8">
+                    {[
+                      { id: 'overview', label: 'Overview', icon: Activity },
+                      { id: 'issues', label: 'Issues', icon: AlertTriangle },
+                      { id: 'recommendations', label: 'AI Recommendations', icon: Target }
+                    ].map(({ id, label, icon: Icon }) => (
+                      <button
+                        key={id}
+                        onClick={() => setSelectedTab(id)}
+                        className={`flex items-center space-x-2 py-4 border-b-2 ${
+                          selectedTab === id 
+                            ? 'border-blue-500 text-blue-600' 
+                            : 'border-transparent text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{label}</span>
+                      </button>
+                    ))}
+                  </nav>
+                </div>
+              </div>
+
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {selectedTab === 'overview' && diagnosticResults && diagnosticResults.healthMetrics && (
+                  <div className="space-y-8">
+                    {/* Health Metrics Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+                      <HealthMetricCard
+                        title="Performance"
+                        score={diagnosticResults.healthMetrics.performance || 0}
+                        icon={Zap}
+                        description="Dashboard load times and query performance"
+                      />
+                      <HealthMetricCard
+                        title="Governance"
+                        score={diagnosticResults.healthMetrics.governance || 0}
+                        icon={BookOpen}
+                        description="Documentation and best practices compliance"
+                      />
+                      <HealthMetricCard
+                        title="Usage"
+                        score={diagnosticResults.healthMetrics.usage || 0}
+                        icon={Users}
+                        description="User engagement and adoption metrics"
+                      />
+                      <HealthMetricCard
+                        title="Data Quality"
+                        score={diagnosticResults.healthMetrics.dataQuality || 0}
+                        icon={Database}
+                        description="Data freshness and consistency indicators"
+                      />
+                      <HealthMetricCard
+                        title="Security"
+                        score={diagnosticResults.healthMetrics.security || 0}
+                        icon={Shield}
+                        description="Access controls and security compliance"
+                      />
+                    </div>
+
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                      <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-600">Total Issues</p>
+                            <p className="text-3xl font-bold text-gray-900">{diagnosticResults.totalIssuesFound || 0}</p>
+                          </div>
+                          <AlertTriangle className="w-8 h-8 text-orange-500" />
+                        </div>
+                      </div>
+                      
+                      <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-600">High Priority</p>
+                            <p className="text-3xl font-bold text-red-600">
+                              {diagnosticResults.detailedIssues ? diagnosticResults.detailedIssues.filter(i => i.severity === 'high').length : 0}
+                            </p>
+                          </div>
+                          <AlertTriangle className="w-8 h-8 text-red-500" />
+                        </div>
+                      </div>
+
+                      <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-600">Performance Issues</p>
+                            <p className="text-3xl font-bold text-yellow-600">{diagnosticResults.issuesByType?.performance || 0}</p>
+                          </div>
+                          <Zap className="w-8 h-8 text-yellow-500" />
+                        </div>
+                      </div>
+
+                      <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-600">Governance Issues</p>
+                            <p className="text-3xl font-bold text-blue-600">{diagnosticResults.issuesByType?.governance || 0}</p>
+                          </div>
+                          <BookOpen className="w-8 h-8 text-blue-500" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Key Insights */}
+                    <div className="bg-white rounded-lg shadow">
+                      <div className="px-6 py-4 border-b border-gray-200">
+                        <h3 className="text-lg font-semibold text-gray-800">Key Insights</h3>
+                      </div>
+                      <div className="p-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="space-y-4">
+                            <h4 className="font-medium text-gray-700">Strengths</h4>
+                            {Object.entries(diagnosticResults.healthMetrics || {})
+                              .filter(([_, score]) => score >= 80)
+                              .map(([metric, score]) => (
+                                <div key={metric} className="flex items-center space-x-2">
+                                  <CheckCircle className="w-4 h-4 text-green-500" />
+                                  <span className="text-sm text-gray-600 capitalize">
+                                    {metric} performing well ({score}/100)
+                                  </span>
+                                </div>
+                              ))}
+                            {Object.entries(diagnosticResults.healthMetrics || {}).filter(([_, score]) => score >= 80).length === 0 && (
+                              <div className="text-sm text-gray-500">No areas currently performing at excellent levels</div>
+                            )}
+                          </div>
+                          <div className="space-y-4">
+                            <h4 className="font-medium text-gray-700">Areas for Improvement</h4>
+                            {Object.entries(diagnosticResults.healthMetrics || {})
+                              .filter(([_, score]) => score < 70)
+                              .map(([metric, score]) => (
+                                <div key={metric} className="flex items-center space-x-2">
+                                  <AlertTriangle className="w-4 h-4 text-orange-500" />
+                                  <span className="text-sm text-gray-600 capitalize">
+                                    {metric} needs attention ({score}/100)
+                                  </span>
+                                </div>
+                              ))}
+                            {Object.entries(diagnosticResults.healthMetrics || {}).filter(([_, score]) => score < 70).length === 0 && (
+                              <div className="text-sm text-gray-500">All areas performing at acceptable levels</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {selectedTab === 'issues' && diagnosticResults && diagnosticResults.detailedIssues && (
+                  <div className="space-y-6">
+                    <div className="bg-white rounded-lg shadow">
+                      <div className="px-6 py-4 border-b border-gray-200">
+                        <h3 className="text-lg font-semibold text-gray-800">All Issues ({diagnosticResults.totalIssuesFound || 0})</h3>
+                      </div>
+                      <div className="divide-y divide-gray-200">
+                        {diagnosticResults.detailedIssues.length > 0 ? diagnosticResults.detailedIssues.map((issue, index) => (
+                          <div key={index} className="p-6">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center space-x-3 mb-2">
+                                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(issue.severity)}`}>
+                                    {(issue.severity || 'unknown').toUpperCase()}
+                                  </span>
+                                  <span className="text-xs text-gray-500 uppercase tracking-wide">{issue.type || 'general'}</span>
+                                </div>
+                                <h4 className="font-medium text-gray-900 mb-1">{issue.dashboard || 'Unknown Dashboard'}</h4>
+                                <p className="text-sm text-gray-600 mb-2">{issue.issue || 'No description available'}</p>
+                                <div className="bg-blue-50 p-3 rounded-md">
+                                  <p className="text-sm text-blue-800">
+                                    <strong>💡 Recommendation:</strong> {issue.recommendation || 'No recommendation available'}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )) : (
+                          <div className="p-6 text-center text-gray-500">
+                            No issues found or diagnostic not yet run.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {selectedTab === 'recommendations' && diagnosticResults && diagnosticResults.aiRecommendations && (
+                  <div className="space-y-8">
+                    <div className="bg-white rounded-lg shadow">
+                      <div className="px-6 py-4 border-b border-gray-200">
+                        <h3 className="text-lg font-semibold text-gray-800 flex items-center space-x-2">
+                          <Target className="w-5 h-5 text-purple-500" />
+                          <span>Priority Actions (AI Generated)</span>
+                        </h3>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Click action buttons to analyze queries or LookML with AI, or select dashboards to view in Looker.
+                        </p>
+                      </div>
+                      <div className="p-6 space-y-6">
+                        {diagnosticResults.aiRecommendations.priorities && diagnosticResults.aiRecommendations.priorities.length > 0 ? 
+                          diagnosticResults.aiRecommendations.priorities.map((priority, index) => (
+                            <PriorityCard key={index} priority={priority} />
+                          )) : (
+                            <div className="text-center text-gray-500 py-8">
+                              No AI recommendations available. Run a diagnostic to generate recommendations.
+                            </div>
+                          )
+                        }
+                      </div>
+                    </div>
+
+                    <div className="bg-white rounded-lg shadow">
+                      <div className="px-6 py-4 border-b border-gray-200">
+                        <h3 className="text-lg font-semibold text-gray-800 flex items-center space-x-2">
+                          <TrendingUp className="w-5 h-5 text-green-500" />
+                          <span>Strategic Recommendations</span>
+                        </h3>
+                      </div>
+                      <div className="p-6 space-y-6">
+                        {diagnosticResults.aiRecommendations.strategicRecommendations && diagnosticResults.aiRecommendations.strategicRecommendations.length > 0 ? 
+                          diagnosticResults.aiRecommendations.strategicRecommendations.map((rec, index) => (
+                            <div key={index} className="bg-gradient-to-r from-green-50 to-blue-50 p-6 rounded-lg">
+                              <div className="flex items-start space-x-4">
+                                <div className="bg-green-100 p-2 rounded-full">
+                                  <TrendingUp className="w-5 h-5 text-green-600" />
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex items-center space-x-2 mb-2">
+                                    <span className="bg-green-100 text-green-800 text-xs font-medium px-2 py-1 rounded-full">
+                                      {rec.category || 'General'}
+                                    </span>
+                                  </div>
+                                  <h4 className="font-semibold text-gray-800 mb-2">{rec.recommendation || 'No recommendation'}</h4>
+                                  <p className="text-gray-600 mb-3">{rec.rationale || 'No rationale provided'}</p>
+                                  <div className="bg-white p-3 rounded border-l-4 border-green-400">
+                                    <p className="text-sm text-gray-700">
+                                      <strong>Expected Outcome:</strong> {rec.expectedOutcome || 'Outcome not specified'}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )) : (
+                            <div className="text-center text-gray-500 py-8">
+                              No strategic recommendations available. Run a diagnostic to generate recommendations.
+                            </div>
+                          )
+                        }
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Loading Overlay */}
+              {loadingAnalysis && (
+                <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center z-40">
+                  <div className="bg-white p-6 rounded-lg shadow-lg flex items-center space-x-3">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                    <span>Running AI Analysis...</span>
+                  </div>
+                </div>
+              )}
+
+              <AnalysisModal />
+
+              {/* Footer */}
+              <div className="bg-white border-t mt-12">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                  <div className="flex items-center justify-between text-sm text-gray-600">
+                    <div className="flex items-center space-x-4">
+                      <span>🤖 Powered by Looker MCP Server & Gemini AI</span>
+                      <span>•</span>
+                      <span>Built for Looker Hackathon 2025</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Clock className="w-4 h-4" />
+                      <span>Next scan recommended: {new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        // Use React 18 createRoot API
+        const root = createRoot(document.getElementById('root'));
+        root.render(<LookerHealthDashboard />);
+    </script>
+</body>
+</html>
