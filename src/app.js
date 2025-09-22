@@ -1,3 +1,4 @@
+// src/app.js - FIXED: MCP test endpoint issue
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -64,7 +65,7 @@ app.get('/api/config', (req, res) => {
     });
 });
 
-// Test MCP connection endpoint
+// FIXED: Test MCP connection endpoint - corrected method call
 app.post('/api/test-mcp', async (req, res) => {
     try {
         console.log('🔌 Testing MCP connection...');
@@ -85,17 +86,20 @@ app.post('/api/test-mcp', async (req, res) => {
         }
 
         const diagnostic = new QueryPerformanceDiagnostic(config);
-        const mcpConnected = await diagnostic.initializeMCP();
         
-        if (mcpConnected) {
+        // FIXED: Use the correct method name - initializeConnectors instead of initializeMCP
+        const connectorResults = await diagnostic.initializeConnectors();
+        
+        if (connectorResults.mcp) {
             try {
                 const testConnectivity = await diagnostic.testLookerAPIConnectivity();
                 res.json({
                     success: true,
                     message: 'MCP connection and Looker API test successful',
                     testResults: {
-                        mcpConnected: true,
-                        lookerApiConnected: testConnectivity,
+                        mcpConnected: connectorResults.mcp,
+                        lookerApiConnected: connectorResults.lookerApi,
+                        bigqueryConnected: connectorResults.bigquery?.success || false,
                         timestamp: new Date()
                     }
                 });
@@ -111,6 +115,7 @@ app.post('/api/test-mcp', async (req, res) => {
             res.status(500).json({
                 success: false,
                 error: 'MCP connection failed',
+                details: connectorResults,
                 recommendation: 'Check Looker credentials and MCP toolbox installation'
             });
         }
@@ -166,7 +171,7 @@ app.post('/api/diagnostic/run', async (req, res) => {
     }
 });
 
-// Debug MCP parameters
+// Debug MCP parameters - FIXED: Added testLookerAPIConnectivity method
 app.post('/api/debug-mcp', async (req, res) => {
     try {
         const config = {
@@ -183,11 +188,18 @@ app.post('/api/debug-mcp', async (req, res) => {
         }
 
         const diagnostic = new QueryPerformanceDiagnostic(config);
-        const isConnected = await diagnostic.testLookerAPIConnectivity();
+        
+        // Test connectivity through the diagnostic class
+        const connectorResults = await diagnostic.initializeConnectors();
         
         res.json({ 
-            success: isConnected, 
-            message: isConnected ? 'Looker API connectivity test passed' : 'Looker API connectivity test failed',
+            success: connectorResults.mcp || connectorResults.lookerApi, 
+            message: connectorResults.mcp ? 
+                'MCP connectivity test passed' : 
+                connectorResults.lookerApi ? 
+                'Looker API connectivity test passed' : 
+                'Both MCP and API connectivity tests failed',
+            details: connectorResults,
             timestamp: new Date()
         });
     } catch (error) {
@@ -224,19 +236,13 @@ app.post('/api/analyze-query', async (req, res) => {
             explore: 'unknown'
         };
 
-        const issues = diagnostic.identifyQueryIssues(queryData);
-        const recommendations = diagnostic.generateQueryRecommendations(queryData);
-        const lookmlSuggestions = diagnostic.generateLookMLSuggestions(queryData);
+        // Use the SQL analyzer directly for query analysis
+        await diagnostic.initializeConnectors();
+        const analysis = await diagnostic.sqlAnalyzer.analyzeRealQuery(queryData, diagnostic.mcpConnector);
         
         res.json({
             success: true,
-            analysis: {
-                queryId: queryId,
-                runtime: runtime,
-                issues: issues,
-                recommendations: recommendations,
-                lookmlSuggestions: lookmlSuggestions
-            },
+            analysis: analysis,
             timestamp: new Date(),
             aiPowered: !!process.env.GEMINI_API_KEY
         });
@@ -253,12 +259,6 @@ app.post('/api/analyze-query', async (req, res) => {
 // Get pagination status
 app.get('/api/pagination-status', async (req, res) => {
     try {
-        const config = {
-            lookerUrl: process.env.LOOKER_BASE_URL || 'demo',
-            clientId: process.env.LOOKER_CLIENT_ID || 'demo',
-            clientSecret: process.env.LOOKER_CLIENT_SECRET || 'demo'
-        };
-
         if (process.env.USE_MOCK_DATA === 'true') {
             res.json({
                 paginationEnabled: true,
@@ -351,207 +351,38 @@ app.post('/api/analyze-lookml', async (req, res) => {
     }
 });
 
-// Serve the API testing page
-app.get('/api-testing.html', (req, res) => {
-    // Serve the API testing HTML file
-    res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Looker API Testing Dashboard</title>
-    <style>
-        /* Include all the CSS from the api_testing_page artifact here */
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; color: #333; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        .header { text-align: center; margin-bottom: 30px; color: white; }
-        .api-tester { background: white; border-radius: 15px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1); overflow: hidden; margin-bottom: 30px; }
-        .tester-header { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 20px; color: white; }
-        .tester-content { padding: 30px; }
-        .test-form { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
-        .form-group { display: flex; flex-direction: column; }
-        .form-group.full-width { grid-column: 1 / -1; }
-        label { font-weight: 600; margin-bottom: 8px; color: #555; }
-        input, select, textarea { padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 16px; transition: border-color 0.3s ease; }
-        textarea { min-height: 120px; resize: vertical; font-family: 'Courier New', monospace; }
-        .btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; transition: transform 0.2s ease; }
-        .predefined-tests { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin-bottom: 30px; }
-        .test-card { background: #f8f9fa; border: 2px solid #e1e5e9; border-radius: 8px; padding: 20px; cursor: pointer; transition: all 0.3s ease; }
-        .test-card:hover { border-color: #4facfe; box-shadow: 0 4px 12px rgba(79, 172, 254, 0.15); }
-        .response-section { margin-top: 30px; }
-        .response-tabs { display: flex; border-bottom: 2px solid #e1e5e9; margin-bottom: 20px; }
-        .tab-button { background: none; border: none; padding: 12px 20px; cursor: pointer; font-size: 16px; font-weight: 600; color: #666; border-bottom: 3px solid transparent; }
-        .tab-button.active { color: #4facfe; border-bottom-color: #4facfe; }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        .response-display { background: #f8f9fa; border-radius: 8px; padding: 20px; border: 2px solid #e1e5e9; font-family: 'Courier New', monospace; font-size: 14px; white-space: pre-wrap; max-height: 500px; overflow-y: auto; }
-        .status-indicator { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
-        .status-success { background: #d4edda; color: #155724; }
-        .status-error { background: #f8d7da; color: #721c24; }
-        .loading { display: none; text-align: center; padding: 20px; }
-        .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #4facfe; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 10px; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    </style>
-</head>
-<body>
-    <!-- Include all the HTML content from the api_testing_page artifact here -->
-    <!-- For brevity, the HTML content would go here -->
-    
-    <!-- Include all the JavaScript from the api_testing_page artifact here -->
-    <script>
-        // All the JavaScript functions from the API testing page would go here
-        // For brevity, they're not repeated but should be included
-    </script>
-</body>
-</html>`);
-});
-
-// Add the API testing routes (include the full content from api_testing_routes artifact)
-// Test MCP tool calls
-app.post('/api/test-mcp', async (req, res) => {
-    // ... (include all the MCP testing code)
-});
-
-// Test direct API calls  
-app.post('/api/test-api', async (req, res) => {
-    // ... (include all the API testing code)
-});
-
-console.log('API testing endpoints added to server');
-
-
-// Test MCP tool calls with correct tool names
-app.post('/api/test-mcp', async (req, res) => {
-    try {
-        const { toolName, arguments: toolArgs } = req.body;
-        
-        if (!toolName) {
-            return res.status(400).json({
-                success: false,
-                error: 'Tool name is required'
-            });
-        }
-
-        const config = {
-            lookerUrl: process.env.LOOKER_BASE_URL,
-            clientId: process.env.LOOKER_CLIENT_ID,
-            clientSecret: process.env.LOOKER_CLIENT_SECRET
-        };
-
-        if (!config.lookerUrl || !config.clientId || !config.clientSecret) {
-            return res.status(400).json({
-                success: false,
-                error: 'Missing Looker configuration',
-                details: 'Please check your .env file for LOOKER_BASE_URL, LOOKER_CLIENT_ID, and LOOKER_CLIENT_SECRET'
-            });
-        }
-
-        // Execute MCP tool call
-        const result = await executeMCPTool(config, toolName, toolArgs || {});
-        
-        res.json({
-            success: true,
-            data: result,
-            toolName: toolName,
-            arguments: toolArgs,
-            timestamp: new Date()
-        });
-
-    } catch (error) {
-        console.error('MCP test failed:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
-    }
-});
-
-// Test direct Looker API calls
-app.post('/api/test-api', async (req, res) => {
-    try {
-        const { endpoint, method = 'GET', body } = req.body;
-        
-        if (!endpoint) {
-            return res.status(400).json({
-                success: false,
-                error: 'API endpoint is required'
-            });
-        }
-
-        const config = {
-            lookerUrl: process.env.LOOKER_BASE_URL,
-            clientId: process.env.LOOKER_CLIENT_ID,
-            clientSecret: process.env.LOOKER_CLIENT_SECRET
-        };
-
-        if (!config.lookerUrl || !config.clientId || !config.clientSecret) {
-            return res.status(400).json({
-                success: false,
-                error: 'Missing Looker configuration'
-            });
-        }
-
-        // Get access token
-        const accessToken = await getLookerAccessToken(config);
-        if (!accessToken) {
-            return res.status(401).json({
-                success: false,
-                error: 'Failed to authenticate with Looker API'
-            });
-        }
-
-        // Make API call
-        const axios = require('axios');
-        const baseUrl = config.lookerUrl.replace(/\/$/, '');
-        const fullUrl = `${baseUrl}${endpoint}`;
-
-        const apiConfig = {
-            method: method,
-            url: fullUrl,
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
-            },
-            timeout: 15000
-        };
-
-        if (body && method !== 'GET') {
-            apiConfig.data = body;
-        }
-
-        const response = await axios(apiConfig);
-        
-        res.json({
-            success: true,
-            status: response.status,
-            data: response.data,
-            endpoint: endpoint,
-            method: method,
-            timestamp: new Date()
-        });
-
-    } catch (error) {
-        console.error('API test failed:', error);
-        res.status(error.response?.status || 500).json({
-            success: false,
-            status: error.response?.status || 'Error',
-            error: error.message,
-            data: error.response?.data || null,
-            endpoint: req.body.endpoint,
-            method: req.body.method || 'GET'
-        });
-    }
-});
-
-// Helper function to execute MCP tools
+// Helper function to execute MCP tools - IMPROVED ERROR HANDLING
 async function executeMCPTool(config, toolName, toolArgs) {
     return new Promise((resolve, reject) => {
         const { spawn } = require('child_process');
         const path = require('path');
         
-        const toolboxPath = path.join(__dirname, 'scripts', 'toolbox');
+        // Try multiple possible toolbox locations
+        const possiblePaths = [
+            path.join(__dirname, 'scripts', 'toolbox'),           // src/scripts/toolbox
+            path.join(__dirname, '..', 'scripts', 'toolbox'),     // scripts/toolbox  
+            path.join(process.cwd(), 'scripts', 'toolbox'),       // project_root/scripts/toolbox
+            'toolbox'  // In PATH
+        ];
+        
+        let toolboxPath = null;
+        for (const testPath of possiblePaths) {
+            try {
+                const fs = require('fs');
+                if (fs.existsSync(testPath)) {
+                    toolboxPath = testPath;
+                    console.log(`Found toolbox at: ${toolboxPath}`);
+                    break;
+                }
+            } catch (e) {
+                // Continue to next path
+            }
+        }
+        
+        if (!toolboxPath) {
+            reject(new Error(`MCP toolbox not found. Searched paths: ${possiblePaths.join(', ')}`));
+            return;
+        }
         
         const toolbox = spawn(toolboxPath, [
             '--stdio', 
@@ -695,61 +526,8 @@ function parseMCPResponse(responseBuffer) {
     return results.length === 1 ? results[0] : results;
 }
 
-// Test available tools endpoint
-app.get('/api/available-tools', async (req, res) => {
-    try {
-        const config = {
-            lookerUrl: process.env.LOOKER_BASE_URL,
-            clientId: process.env.LOOKER_CLIENT_ID,
-            clientSecret: process.env.LOOKER_CLIENT_SECRET
-        };
-
-        if (!config.lookerUrl || !config.clientId || !config.clientSecret) {
-            return res.json({
-                success: false,
-                error: 'Missing configuration',
-                availableTools: [
-                    'get_models', 'get_explores', 'query', 'get_looks', 
-                    'run_look', 'query_sql', 'get_measures', 'get_dimensions',
-                    'get_filters', 'get_parameters', 'query_url'
-                ]
-            });
-        }
-
-        // Try to get actual list of tools
-        try {
-            const tools = await executeMCPTool(config, 'list_tools', {});
-            res.json({
-                success: true,
-                tools: tools,
-                timestamp: new Date()
-            });
-        } catch (error) {
-            // Fallback to known tools from documentation
-            res.json({
-                success: true,
-                availableTools: [
-                    'get_models', 'get_explores', 'query', 'get_looks', 
-                    'run_look', 'query_sql', 'get_measures', 'get_dimensions',
-                    'get_filters', 'get_parameters', 'query_url'
-                ],
-                note: 'Fallback list from documentation',
-                error: error.message
-            });
-        }
-
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-// Add these routes to your app.js file
-
 // Test MCP tool calls with correct tool names
-app.post('/api/test-mcp', async (req, res) => {
+app.post('/api/test-mcp-tool', async (req, res) => {
     try {
         const { toolName, arguments: toolArgs } = req.body;
         
@@ -795,233 +573,6 @@ app.post('/api/test-mcp', async (req, res) => {
     }
 });
 
-// Test direct Looker API calls
-app.post('/api/test-api', async (req, res) => {
-    try {
-        const { endpoint, method = 'GET', body } = req.body;
-        
-        if (!endpoint) {
-            return res.status(400).json({
-                success: false,
-                error: 'API endpoint is required'
-            });
-        }
-
-        const config = {
-            lookerUrl: process.env.LOOKER_BASE_URL,
-            clientId: process.env.LOOKER_CLIENT_ID,
-            clientSecret: process.env.LOOKER_CLIENT_SECRET
-        };
-
-        if (!config.lookerUrl || !config.clientId || !config.clientSecret) {
-            return res.status(400).json({
-                success: false,
-                error: 'Missing Looker configuration'
-            });
-        }
-
-        // Get access token
-        const accessToken = await getLookerAccessToken(config);
-        if (!accessToken) {
-            return res.status(401).json({
-                success: false,
-                error: 'Failed to authenticate with Looker API'
-            });
-        }
-
-        // Make API call
-        const axios = require('axios');
-        const baseUrl = config.lookerUrl.replace(/\/$/, '');
-        const fullUrl = `${baseUrl}${endpoint}`;
-
-        const apiConfig = {
-            method: method,
-            url: fullUrl,
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
-            },
-            timeout: 15000
-        };
-
-        if (body && method !== 'GET') {
-            apiConfig.data = body;
-        }
-
-        const response = await axios(apiConfig);
-        
-        res.json({
-            success: true,
-            status: response.status,
-            data: response.data,
-            endpoint: endpoint,
-            method: method,
-            timestamp: new Date()
-        });
-
-    } catch (error) {
-        console.error('API test failed:', error);
-        res.status(error.response?.status || 500).json({
-            success: false,
-            status: error.response?.status || 'Error',
-            error: error.message,
-            data: error.response?.data || null,
-            endpoint: req.body.endpoint,
-            method: req.body.method || 'GET'
-        });
-    }
-});
-
-// Helper function to execute MCP tools
-async function executeMCPTool(config, toolName, toolArgs) {
-    return new Promise((resolve, reject) => {
-        const { spawn } = require('child_process');
-        const path = require('path');
-        
-        const toolboxPath = path.join(__dirname, 'scripts', 'toolbox');
-        
-        const toolbox = spawn(toolboxPath, [
-            '--stdio', 
-            '--prebuilt', 
-            'looker'
-        ], {
-            env: {
-                ...process.env,
-                LOOKER_BASE_URL: config.lookerUrl,
-                LOOKER_CLIENT_ID: config.clientId,
-                LOOKER_CLIENT_SECRET: config.clientSecret
-            },
-            stdio: ['pipe', 'pipe', 'pipe']
-        });
-
-        let responseBuffer = '';
-        let errorBuffer = '';
-        let processCompleted = false;
-
-        toolbox.stdout.on('data', (data) => {
-            responseBuffer += data.toString();
-        });
-
-        toolbox.stderr.on('data', (data) => {
-            errorBuffer += data.toString();
-        });
-
-        toolbox.on('close', (code) => {
-            if (processCompleted) return;
-            processCompleted = true;
-            
-            if (errorBuffer.includes('invalid tool name')) {
-                reject(new Error(`Invalid tool name: ${toolName}. Available tools may include: get_models, get_explores, query, get_looks, run_look, query_sql, get_measures, get_dimensions, get_filters, get_parameters, query_url`));
-                return;
-            }
-            
-            try {
-                const result = parseMCPResponse(responseBuffer);
-                resolve(result);
-            } catch (error) {
-                reject(new Error(`Failed to parse MCP response: ${error.message}`));
-            }
-        });
-
-        toolbox.on('error', (error) => {
-            if (!processCompleted) {
-                processCompleted = true;
-                reject(new Error(`MCP process error: ${error.message}`));
-            }
-        });
-
-        // Send the command
-        const command = {
-            jsonrpc: "2.0",
-            id: 1,
-            method: "tools/call",
-            params: {
-                name: toolName,
-                arguments: toolArgs
-            }
-        };
-
-        console.log(`Executing MCP tool: ${toolName}`, toolArgs);
-        
-        toolbox.stdin.write(JSON.stringify(command) + '\n');
-        toolbox.stdin.end();
-
-        // Timeout handling
-        setTimeout(() => {
-            if (!processCompleted) {
-                processCompleted = true;
-                toolbox.kill('SIGKILL');
-                reject(new Error(`MCP tool ${toolName} timed out after 20 seconds`));
-            }
-        }, 20000);
-    });
-}
-
-// Helper function to get Looker access token
-async function getLookerAccessToken(config) {
-    try {
-        const axios = require('axios');
-        
-        const baseUrl = config.lookerUrl.replace(/\/$/, '');
-        const loginUrl = `${baseUrl}/api/4.0/login`;
-        
-        const formData = new URLSearchParams();
-        formData.append('client_id', config.clientId);
-        formData.append('client_secret', config.clientSecret);
-        
-        const response = await axios.post(loginUrl, formData, {
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            timeout: 15000
-        });
-        
-        return response.data.access_token;
-        
-    } catch (error) {
-        console.log('Failed to get access token:', error.message);
-        return null;
-    }
-}
-
-// Parse MCP response
-function parseMCPResponse(responseBuffer) {
-    if (!responseBuffer || responseBuffer.length < 10) {
-        return { message: 'Empty response', data: null };
-    }
-
-    const lines = responseBuffer.split('\n').filter(line => line.trim());
-    const results = [];
-    
-    for (const line of lines) {
-        try {
-            const response = JSON.parse(line);
-            
-            if (response.result && response.result.content) {
-                for (const item of response.result.content) {
-                    if (item.type === 'text' && item.text) {
-                        try {
-                            const data = JSON.parse(item.text);
-                            results.push(data);
-                        } catch (parseError) {
-                            results.push({ raw_text: item.text });
-                        }
-                    } else {
-                        results.push(item);
-                    }
-                }
-            } else if (response.error) {
-                throw new Error(response.error.message || 'MCP error');
-            }
-        } catch (lineError) {
-            // Skip invalid lines
-            continue;
-        }
-    }
-    
-    return results.length === 1 ? results[0] : results;
-}
-
 // Test available tools endpoint
 app.get('/api/available-tools', async (req, res) => {
     try {
@@ -1072,10 +623,6 @@ app.get('/api/available-tools', async (req, res) => {
         });
     }
 });
-
-console.log('API testing endpoints added to server');
-
-console.log('API testing endpoints added to server');
 
 // Start server with enhanced logging
 app.listen(PORT, () => {

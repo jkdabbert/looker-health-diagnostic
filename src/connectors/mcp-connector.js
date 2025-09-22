@@ -150,7 +150,7 @@ class MCPConnector {
         }
     }
 
-    async getSlowQueries(timeRange = '7 days ago for 7 days', runtimeThreshold = 5, limit = 25) {
+    async getSlowQueries(timeRange = '30 days ago for 30 days', runtimeThreshold = 5, limit = 25) {
         const queryParams = {
             model: "system__activity",
             explore: "history",
