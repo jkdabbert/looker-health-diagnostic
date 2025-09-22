@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "looker-toolbox": {
+      "command": "npx",
+      "args": ["@google-cloud/genai-toolbox", "--stdio", "--prebuilt", "looker"],
+      "env": {
+        "LOOKER_BASE_URL": "https://your-looker-instance.com",
+        "LOOKER_CLIENT_ID": "your_client_id",
+        "LOOKER_CLIENT_SECRET": "your_client_secret",
+        "LOOKER_VERIFY_SSL": "true"
+      }
+    }
+  }
+}

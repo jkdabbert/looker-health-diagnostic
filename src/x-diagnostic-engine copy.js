@@ -1,33 +1,18 @@
-// Production Looker Health Diagnostic Assistant - Real MCP Integration Only
-// Comprehensive tool with pagination, MCP tools, and AI query analysis
+// Streamlined Query Performance Diagnostic - Focus on slow queries and LookML optimization
 
-class LookerHealthDiagnostic {
+class QueryPerformanceDiagnostic {
     constructor(config) {
         this.config = config;
         this.mcpClient = null;
-        this.healthMetrics = {
-            performance: 0,
-            governance: 0,
-            usage: 0,
-            dataQuality: 0,
-            security: 0
-        };
-        this.diagnosticResults = [];
-        this.mcpMetrics = {
-            connectionType: 'Unknown',
-            callsPerformed: 0,
-            totalDashboards: 0,
-            totalLooks: 0,
-            avgResponseTime: 0,
-            errors: 0
-        };
+        this.slowQueries = [];
+        this.lookmlFiles = [];
+        this.optimizations = [];
     }
 
     async initializeMCP() {
         try {
-            console.log('🔌 Initializing MCP connection...');
+            console.log('🔌 Initializing MCP connection for query analysis...');
             
-            // Validate required configuration
             if (!this.config.lookerUrl || !this.config.clientId || !this.config.clientSecret) {
                 throw new Error('Missing required Looker configuration');
             }
@@ -36,11 +21,10 @@ class LookerHealthDiagnostic {
                 baseUrl: this.config.lookerUrl,
                 clientId: this.config.clientId,
                 isConnected: true,
-                initialized: false,
                 startTime: Date.now()
             };
             
-            console.log('✅ MCP client configured');
+            console.log('✅ MCP client configured for query performance analysis');
             return true;
         } catch (error) {
             console.error('❌ MCP connection failed:', error);
@@ -48,123 +32,99 @@ class LookerHealthDiagnostic {
         }
     }
 
-    // Test Gemini connection for debugging
-    async testGeminiConnection() {
-        console.log('🧪 Testing Gemini AI connection...');
+    // Debug MCP parameters to understand the correct structure
+    async debugMCPParameters() {
+        console.log('🔧 Starting MCP parameter debugging...');
         
-        if (!process.env.GEMINI_API_KEY) {
-            console.log('⚠️ No Gemini API key configured');
-            return false;
-        }
-        
-        const axios = require('axios');
         try {
-            const response = await axios.post(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-                {
-                    contents: [{
-                        parts: [{ text: "Test connection" }]
-                    }]
+            // Test 1: List available tools
+            console.log('\n=== Testing Available Tools ===');
+            const toolsResponse = await this.testMCPCall({
+                method: "tools/list",
+                params: {}
+            });
+            console.log('Tools response:', toolsResponse);
+
+            // Test 2: Get models 
+            console.log('\n=== Testing Get Models ===');
+            const modelsResponse = await this.testMCPCall({
+                method: "tools/call",
+                params: {
+                    name: "get_models",
+                    arguments: {}
                 }
-            );
-            console.log('✅ Gemini AI connection successful');
-            return true;
-        } catch (error) {
-            console.log('❌ Gemini AI connection failed:', error.response?.data?.error?.message || error.message);
-            return false;
-        }
-    }
+            });
+            console.log('Models response:', modelsResponse);
 
-    async fetchAllDashboardsWithPagination() {
-        console.log('📊 Fetching all dashboards with pagination...');
-        
-        const allDashboards = [];
-        const allLooks = [];
-        let offset = 0;
-        const limit = 25;
-        let hasMore = true;
-
-        console.log('🔗 Starting paginated MCP data collection...');
-        
-        // Fetch dashboards with pagination
-        while (hasMore) {
-            try {
-                console.log(`📄 Fetching dashboards batch: offset=${offset}, limit=${limit}`);
-                const dashboardBatch = await this.fetchDashboardBatch(offset, limit);
-                
-                if (dashboardBatch && dashboardBatch.length > 0) {
-                    allDashboards.push(...dashboardBatch);
-                    offset += limit;
-                    this.mcpMetrics.callsPerformed++;
-                    
-                    // Stop if we got less than limit (last page)
-                    if (dashboardBatch.length < limit) {
-                        hasMore = false;
+            // Test 3: Try query with "fields" parameter
+            console.log('\n=== Testing Query with Fields ===');
+            const queryResponse = await this.testMCPCall({
+                method: "tools/call", 
+                params: {
+                    name: "query",
+                    arguments: {
+                        model: "system__activity",
+                        explore: "history",
+                        fields: ["query.id", "history.runtime"],
+                        limit: 5
                     }
-                    
-                    // Add small delay to be respectful to the API
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                } else {
-                    hasMore = false;
                 }
-            } catch (error) {
-                console.log(`⚠️ Error fetching batch at offset ${offset}: ${error.message}`);
-                this.mcpMetrics.errors++;
-                hasMore = false;
-            }
-        }
+            });
+            console.log('Query response:', queryResponse);
 
-        // Fetch looks separately
-        try {
-            console.log('👀 Fetching looks via MCP...');
-            const looks = await this.fetchLooksViaMCP();
-            if (looks && looks.length > 0) {
-                allLooks.push(...looks);
-                this.mcpMetrics.callsPerformed++;
+            // Test 4: Try alternative query structures
+            console.log('\n=== Testing Alternative Query Structures ===');
+            
+            const alternatives = [
+                {
+                    name: "With view parameter",
+                    args: {
+                        model: "system__activity",
+                        view: "history",
+                        fields: ["query.id", "history.runtime"],
+                        limit: 5
+                    }
+                },
+                {
+                    name: "String fields",
+                    args: {
+                        model: "system__activity",
+                        explore: "history",
+                        fields: "query.id,history.runtime",
+                        limit: 5
+                    }
+                },
+                {
+                    name: "Dimensions/measures structure",
+                    args: {
+                        model: "system__activity",
+                        explore: "history",
+                        dimensions: ["query.id", "history.runtime"],
+                        measures: [],
+                        limit: 5
+                    }
+                }
+            ];
+
+            for (const alt of alternatives) {
+                console.log(`\n--- Testing: ${alt.name} ---`);
+                const response = await this.testMCPCall({
+                    method: "tools/call",
+                    params: {
+                        name: "query",
+                        arguments: alt.args
+                    }
+                });
+                console.log(`${alt.name} response:`, response.stdout.substring(0, 200));
             }
+
         } catch (error) {
-            console.log('⚠️ Could not fetch looks:', error.message);
-            this.mcpMetrics.errors++;
+            console.error('MCP debugging failed:', error);
         }
-
-        // Fetch query performance data
-        let queryMetrics = [];
-        try {
-            console.log('🔍 Fetching query performance data...');
-            queryMetrics = await this.fetchQueryMetrics();
-            this.mcpMetrics.callsPerformed++;
-        } catch (error) {
-            console.log('⚠️ Could not fetch query metrics:', error.message);
-            this.mcpMetrics.errors++;
-        }
-
-        console.log(`✅ Successfully collected ${allDashboards.length} dashboards and ${allLooks.length} looks via MCP`);
-        
-        this.mcpMetrics.totalDashboards = allDashboards.length;
-        this.mcpMetrics.totalLooks = allLooks.length;
-        this.mcpMetrics.connectionType = 'Live MCP Integration (Paginated)';
-        this.mcpMetrics.avgResponseTime = this.calculateAvgResponseTime();
-
-        const transformedDashboards = allDashboards.map(d => this.transformLookerDashboard(d, queryMetrics));
-        const transformedLooks = allLooks.map(l => this.transformLook(l));
-
-        return {
-            dashboards: transformedDashboards,
-            looks: transformedLooks,
-            queryMetrics: queryMetrics,
-            systemMetrics: {
-                totalDashboards: transformedDashboards.length,
-                totalLooks: transformedLooks.length,
-                totalUsers: this.estimateUserCount(allDashboards),
-                avgSystemLoad: this.calculateSystemLoad(allDashboards),
-                dataFreshnessScore: this.calculateDataFreshness(transformedDashboards),
-                connectionType: this.mcpMetrics.connectionType,
-                mcpMetrics: this.mcpMetrics
-            }
-        };
     }
 
-    async fetchDashboardBatch(offset, limit) {
+    // Helper method for testing MCP calls
+    async testMCPCall(commandParams) {
         return new Promise((resolve, reject) => {
             const { spawn } = require('child_process');
             const path = require('path');
@@ -180,8 +140,72 @@ class LookerHealthDiagnostic {
                     ...process.env,
                     LOOKER_BASE_URL: this.config.lookerUrl,
                     LOOKER_CLIENT_ID: this.config.clientId,
-                    LOOKER_CLIENT_SECRET: this.config.clientSecret,
-                    LOOKER_VERIFY_SSL: 'true'
+                    LOOKER_CLIENT_SECRET: this.config.clientSecret
+                },
+                stdio: ['pipe', 'pipe', 'pipe']
+            });
+
+            let responseBuffer = '';
+            let errorBuffer = '';
+            let processCompleted = false;
+
+            toolbox.stdout.on('data', (data) => {
+                responseBuffer += data.toString();
+            });
+
+            toolbox.stderr.on('data', (data) => {
+                errorBuffer += data.toString();
+            });
+
+            toolbox.on('close', (code) => {
+                if (processCompleted) return;
+                processCompleted = true;
+                
+                console.log('STDOUT:', responseBuffer.substring(0, 500));
+                if (errorBuffer) console.log('STDERR:', errorBuffer);
+                
+                resolve({ stdout: responseBuffer, stderr: errorBuffer });
+            });
+
+            const command = {
+                jsonrpc: "2.0",
+                id: Math.floor(Math.random() * 1000),
+                ...commandParams
+            };
+
+            console.log('Sending command:', JSON.stringify(command, null, 2));
+            toolbox.stdin.write(JSON.stringify(command) + '\n');
+            toolbox.stdin.end();
+
+            setTimeout(() => {
+                if (!processCompleted) {
+                    toolbox.kill('SIGKILL');
+                    resolve({ stdout: responseBuffer, stderr: errorBuffer, timeout: true });
+                }
+            }, 15000);
+        });
+    }
+
+    // Test query_metrics explore access
+    async testQueryMetricsExplore() {
+        console.log('🧪 Testing direct access to query_metrics explore...');
+        
+        return new Promise((resolve, reject) => {
+            const { spawn } = require('child_process');
+            const path = require('path');
+            
+            const toolboxPath = path.join(__dirname, '..', 'scripts', 'toolbox');
+            
+            const toolbox = spawn(toolboxPath, [
+                '--stdio', 
+                '--prebuilt', 
+                'looker'
+            ], {
+                env: {
+                    ...process.env,
+                    LOOKER_BASE_URL: this.config.lookerUrl,
+                    LOOKER_CLIENT_ID: this.config.clientId,
+                    LOOKER_CLIENT_SECRET: this.config.clientSecret
                 },
                 stdio: ['pipe', 'pipe', 'pipe']
             });
@@ -194,11 +218,79 @@ class LookerHealthDiagnostic {
             });
 
             toolbox.stderr.on('data', (data) => {
-                console.log(`MCP STDERR: ${data.toString().trim()}`);
+                console.log(`Test Query STDERR: ${data.toString().trim()}`);
             });
 
-            toolbox.on('error', (error) => {
-                reject(new Error(`MCP process error: ${error.message}`));
+            toolbox.on('close', (code) => {
+                if (processCompleted) return;
+                processCompleted = true;
+                
+                console.log('Query metrics test response:', responseBuffer);
+                resolve(responseBuffer);
+            });
+
+            // Test with minimal fields first
+            const command = {
+                jsonrpc: "2.0",
+                id: 99,
+                method: "tools/call",
+                params: {
+                    name: "query",
+                    arguments: {
+                        model: "system__activity",
+                        explore: "query_metrics",
+                        fields: ["query.id", "query.model", "query.explore"],
+                        limit: 5
+                    }
+                }
+            };
+
+            console.log('Testing query_metrics with command:', JSON.stringify(command, null, 2));
+            toolbox.stdin.write(JSON.stringify(command) + '\n');
+            toolbox.stdin.end();
+
+            setTimeout(() => {
+                if (!processCompleted) {
+                    toolbox.kill('SIGKILL');
+                    resolve('');
+                }
+            }, 15000);
+        });
+    }
+
+    // Get available models to understand what's accessible
+    async getAvailableModels() {
+        console.log('📋 Getting available models...');
+        
+        return new Promise((resolve, reject) => {
+            const { spawn } = require('child_process');
+            const path = require('path');
+            
+            const toolboxPath = path.join(__dirname, '..', 'scripts', 'toolbox');
+            
+            const toolbox = spawn(toolboxPath, [
+                '--stdio', 
+                '--prebuilt', 
+                'looker'
+            ], {
+                env: {
+                    ...process.env,
+                    LOOKER_BASE_URL: this.config.lookerUrl,
+                    LOOKER_CLIENT_ID: this.config.clientId,
+                    LOOKER_CLIENT_SECRET: this.config.clientSecret
+                },
+                stdio: ['pipe', 'pipe', 'pipe']
+            });
+
+            let responseBuffer = '';
+            let processCompleted = false;
+
+            toolbox.stdout.on('data', (data) => {
+                responseBuffer += data.toString();
+            });
+
+            toolbox.stderr.on('data', (data) => {
+                console.log(`MCP Models STDERR: ${data.toString().trim()}`);
             });
 
             toolbox.on('close', (code) => {
@@ -206,10 +298,11 @@ class LookerHealthDiagnostic {
                 processCompleted = true;
                 
                 try {
-                    const dashboards = this.processMCPDashboardResponse(responseBuffer);
-                    resolve(dashboards);
+                    console.log('Available models response:', responseBuffer);
+                    const models = this.parseModelsResponse(responseBuffer);
+                    resolve(models);
                 } catch (error) {
-                    reject(error);
+                    resolve([]);
                 }
             });
 
@@ -218,562 +311,60 @@ class LookerHealthDiagnostic {
                 id: 1,
                 method: "tools/call",
                 params: {
-                    name: "get_dashboards",
-                    arguments: { 
-                        limit: limit,
-                        offset: offset
-                    }
+                    name: "get_models",
+                    arguments: {}
                 }
             };
 
-            try {
-                toolbox.stdin.write(JSON.stringify(command) + '\n');
-                toolbox.stdin.end();
-            } catch (error) {
-                reject(error);
-            }
+            toolbox.stdin.write(JSON.stringify(command) + '\n');
+            toolbox.stdin.end();
 
             setTimeout(() => {
                 if (!processCompleted) {
                     toolbox.kill('SIGKILL');
-                    reject(new Error('MCP batch timeout'));
+                    resolve([]);
                 }
             }, 15000);
         });
     }
 
-    async fetchLooksViaMCP() {
-        return new Promise((resolve, reject) => {
-            const { spawn } = require('child_process');
-            const path = require('path');
-            
-            const toolboxPath = path.join(__dirname, '..', 'scripts', 'toolbox');
-            
-            const toolbox = spawn(toolboxPath, [
-                '--stdio', 
-                '--prebuilt', 
-                'looker'
-            ], {
-                env: {
-                    ...process.env,
-                    LOOKER_BASE_URL: this.config.lookerUrl,
-                    LOOKER_CLIENT_ID: this.config.clientId,
-                    LOOKER_CLIENT_SECRET: this.config.clientSecret
-                },
-                stdio: ['pipe', 'pipe', 'pipe']
-            });
-
-            let responseBuffer = '';
-            let processCompleted = false;
-
-            toolbox.stdout.on('data', (data) => {
-                responseBuffer += data.toString();
-            });
-
-            toolbox.on('close', (code) => {
-                if (processCompleted) return;
-                processCompleted = true;
-                
-                try {
-                    const looks = this.processMCPLooksResponse(responseBuffer);
-                    resolve(looks);
-                } catch (error) {
-                    resolve([]);
-                }
-            });
-
-            const command = {
-                jsonrpc: "2.0",
-                id: 2,
-                method: "tools/call",
-                params: {
-                    name: "get_looks",
-                    arguments: { limit: 100 }
-                }
-            };
-
-            toolbox.stdin.write(JSON.stringify(command) + '\n');
-            toolbox.stdin.end();
-
-            setTimeout(() => {
-                if (!processCompleted) {
-                    toolbox.kill('SIGKILL');
-                    resolve([]);
-                }
-            }, 10000);
-        });
-    }
-// Enhanced query collection methods for your diagnostic-engine.js
-
-async fetchQueryMetricsEnhanced() {
-    console.log('🔍 Fetching enhanced query metrics with LookML context...');
-    
-    return new Promise((resolve, reject) => {
-        const { spawn } = require('child_process');
-        const path = require('path');
+    parseModelsResponse(responseBuffer) {
+        const models = [];
+        const lines = responseBuffer.split('\n').filter(line => line.trim());
         
-        const toolboxPath = path.join(__dirname, '..', 'scripts', 'toolbox');
-        
-        const toolbox = spawn(toolboxPath, [
-            '--stdio', 
-            '--prebuilt', 
-            'looker'
-        ], {
-            env: {
-                ...process.env,
-                LOOKER_BASE_URL: this.config.lookerUrl,
-                LOOKER_CLIENT_ID: this.config.clientId,
-                LOOKER_CLIENT_SECRET: this.config.clientSecret
-            },
-            stdio: ['pipe', 'pipe', 'pipe']
-        });
-
-        let responseBuffer = '';
-        let processCompleted = false;
-
-        toolbox.stdout.on('data', (data) => {
-            responseBuffer += data.toString();
-        });
-
-        toolbox.on('close', (code) => {
-            if (processCompleted) return;
-            processCompleted = true;
-            
+        for (const line of lines) {
             try {
-                const queries = this.processEnhancedQueryResponse(responseBuffer);
-                resolve(queries);
-            } catch (error) {
-                resolve([]);
-            }
-        });
-
-        // Enhanced query that captures LookML context
-        const command = {
-            jsonrpc: "2.0",
-            id: 3,
-            method: "tools/call",
-            params: {
-                name: "query",
-                arguments: {
-                    query: `
-                        SELECT
-                            h.query_id,
-                            h.id as history_id,
-                            CAST(h.runtime AS DECIMAL(19,4)) AS runtime_seconds,
-                            h.created_date,
-                            h.dashboard_id,
-                            h.look_id,
-                            q.model,
-                            q.explore,
-                            q.sql,
-                            q.slug as query_slug,
-                            d.title as dashboard_title,
-                            d.description as dashboard_description,
-                            l.title as look_title,
-                            u.first_name || ' ' || u.last_name as user_name,
-                            h.cache_key,
-                            h.status,
-                            qm.execute_main_query as main_query_time,
-                            qm.acquire_connection as connection_time,
-                            qm.prepare_connection as prepare_time,
-                            qm.execute_main_query / CAST(h.runtime AS DECIMAL(19,4)) * 100 as query_percentage
-                        FROM history h
-                        LEFT JOIN query q ON h.query_id = q.id
-                        LEFT JOIN dashboard d ON h.dashboard_id = d.id
-                        LEFT JOIN look l ON h.look_id = l.id
-                        LEFT JOIN user u ON h.user_id = u.id
-                        LEFT JOIN query_metrics qm ON h.slug = qm.query_task_id
-                        WHERE 
-                            CAST(h.runtime AS DECIMAL(19,4)) > 3.0
-                            AND h.created_date >= CURRENT_DATE - 7
-                            AND h.status = 'complete'
-                            AND q.model IS NOT NULL
-                        ORDER BY h.runtime DESC
-                        LIMIT 100
-                    `
-                }
-            }
-        };
-
-        toolbox.stdin.write(JSON.stringify(command) + '\n');
-        toolbox.stdin.end();
-
-        setTimeout(() => {
-            if (!processCompleted) {
-                toolbox.kill('SIGKILL');
-                resolve([]);
-            }
-        }, 15000);
-    });
-}
-
-// Enhanced query processing with LookML context
-processEnhancedQueryResponse(responseBuffer) {
-    const queries = [];
-    const lines = responseBuffer.split('\n');
-    
-    for (const line of lines) {
-        if (line.trim()) {
-            try {
-                const response = JSON.parse(line.trim());
-                
-                if (response.result && response.result.content && Array.isArray(response.result.content)) {
+                const response = JSON.parse(line);
+                if (response.result && response.result.content) {
                     for (const item of response.result.content) {
                         if (item.type === 'text' && item.text) {
                             try {
-                                const queryData = JSON.parse(item.text);
-                                
-                                const enhancedQuery = {
-                                    query_id: queryData.query_id,
-                                    history_id: queryData.history_id,
-                                    runtime_seconds: parseFloat(queryData.runtime_seconds || 0),
-                                    created_date: queryData.created_date,
-                                    
-                                    // Context information
-                                    dashboard_id: queryData.dashboard_id,
-                                    dashboard_title: queryData.dashboard_title,
-                                    look_id: queryData.look_id,
-                                    look_title: queryData.look_title,
-                                    user_name: queryData.user_name,
-                                    
-                                    // LookML information
-                                    model: queryData.model,
-                                    explore: queryData.explore,
-                                    sql: queryData.sql,
-                                    
-                                    // Performance breakdown
-                                    main_query_time: parseFloat(queryData.main_query_time || 0),
-                                    connection_time: parseFloat(queryData.connection_time || 0),
-                                    prepare_time: parseFloat(queryData.prepare_time || 0),
-                                    query_percentage: parseFloat(queryData.query_percentage || 0),
-                                    
-                                    // Technical details
-                                    cache_key: queryData.cache_key,
-                                    status: queryData.status,
-                                    query_slug: queryData.query_slug
-                                };
-                                
-                                if (enhancedQuery.runtime_seconds > 3) {
-                                    queries.push(enhancedQuery);
+                                const modelData = JSON.parse(item.text);
+                                if (Array.isArray(modelData)) {
+                                    models.push(...modelData);
+                                } else {
+                                    models.push(modelData);
                                 }
                             } catch (e) {
-                                console.log('Could not parse enhanced query data');
+                                // If not JSON, treat as text
+                                models.push({ name: item.text.trim() });
                             }
                         }
                     }
-                    break;
                 }
             } catch (e) {
-                // Skip non-JSON lines
+                continue;
             }
         }
+        
+        console.log(`📋 Found ${models.length} models:`, models.map(m => m.name || m));
+        return models;
     }
-    
-    console.log(`🔍 Found ${queries.length} slow queries with LookML context`);
-    return queries;
-}
 
-// Get LookML files related to slow queries
-async fetchLookMLForSlowQueries(slowQueries) {
-    console.log('📝 Fetching LookML files for optimization analysis...');
-    
-    const uniqueModels = [...new Set(slowQueries.map(q => q.model).filter(Boolean))];
-    const lookmlFiles = [];
-    
-    for (const model of uniqueModels) {
-        try {
-            const modelFiles = await this.fetchLookMLFilesForModel(model);
-            lookmlFiles.push(...modelFiles);
-        } catch (error) {
-            console.log(`⚠️ Could not fetch LookML for model ${model}:`, error.message);
-        }
-    }
-    
-    return lookmlFiles;
-}
-
-async fetchLookMLFilesForModel(modelName) {
-    return new Promise((resolve, reject) => {
-        const { spawn } = require('child_process');
-        const path = require('path');
+    // Focused query collection using the correct parameter structure
+    async fetchSlowQueriesWithContext() {
+        console.log('🐌 Fetching slow queries with explore context...');
         
-        const toolboxPath = path.join(__dirname, '..', 'scripts', 'toolbox');
-        
-        const toolbox = spawn(toolboxPath, [
-            '--stdio', 
-            '--prebuilt', 
-            'looker'
-        ], {
-            env: {
-                ...process.env,
-                LOOKER_BASE_URL: this.config.lookerUrl,
-                LOOKER_CLIENT_ID: this.config.clientId,
-                LOOKER_CLIENT_SECRET: this.config.clientSecret
-            },
-            stdio: ['pipe', 'pipe', 'pipe']
-        });
-
-        let responseBuffer = '';
-        let processCompleted = false;
-
-        toolbox.stdout.on('data', (data) => {
-            responseBuffer += data.toString();
-        });
-
-        toolbox.on('close', (code) => {
-            if (processCompleted) return;
-            processCompleted = true;
-            
-            try {
-                const files = this.processLookMLResponse(responseBuffer, modelName);
-                resolve(files);
-            } catch (error) {
-                resolve([]);
-            }
-        });
-
-        const command = {
-            jsonrpc: "2.0",
-            id: 4,
-            method: "tools/call",
-            params: {
-                name: "get_lookml_model",
-                arguments: {
-                    model_name: modelName
-                }
-            }
-        };
-
-        toolbox.stdin.write(JSON.stringify(command) + '\n');
-        toolbox.stdin.end();
-
-        setTimeout(() => {
-            if (!processCompleted) {
-                toolbox.kill('SIGKILL');
-                resolve([]);
-            }
-        }, 10000);
-    });
-}
-
-// Analyze slow queries and suggest LookML optimizations
-async analyzeLookMLOptimizations(slowQueries, lookmlFiles = []) {
-    console.log('🏗️ Analyzing LookML optimization opportunities...');
-    
-    const optimizations = [];
-    
-    // Group queries by model/explore
-    const queryGroups = this.groupQueriesByModelExplore(slowQueries);
-    
-    for (const [modelExplore, queries] of Object.entries(queryGroups)) {
-        const [model, explore] = modelExplore.split('.');
-        
-        // Find related LookML files
-        const relatedLookML = lookmlFiles.filter(file => 
-            file.model === model && (file.type === 'explore' || file.explore === explore)
-        );
-        
-        // Analyze common patterns in slow queries
-        const optimization = await this.generateLookMLOptimization(
-            model, 
-            explore, 
-            queries, 
-            relatedLookML
-        );
-        
-        if (optimization) {
-            optimizations.push(optimization);
-        }
-    }
-    
-    return optimizations;
-}
-
-groupQueriesByModelExplore(queries) {
-    const groups = {};
-    
-    queries.forEach(query => {
-        if (query.model && query.explore) {
-            const key = `${query.model}.${query.explore}`;
-            if (!groups[key]) {
-                groups[key] = [];
-            }
-            groups[key].push(query);
-        }
-    });
-    
-    return groups;
-}
-
-async generateLookMLOptimization(model, explore, queries, lookmlFiles) {
-    const avgRuntime = queries.reduce((sum, q) => sum + q.runtime_seconds, 0) / queries.length;
-    const totalQueries = queries.length;
-    
-    // Common slow query patterns
-    const commonIssues = this.identifyCommonSlowQueryPatterns(queries);
-    const lookmlSuggestions = this.generateLookMLSuggestions(commonIssues, lookmlFiles);
-    
-    return {
-        model: model,
-        explore: explore,
-        impact: {
-            totalSlowQueries: totalQueries,
-            averageRuntime: Math.round(avgRuntime * 100) / 100,
-            totalTimeWasted: Math.round(queries.reduce((sum, q) => sum + q.runtime_seconds, 0)),
-            affectedDashboards: [...new Set(queries.map(q => q.dashboard_title).filter(Boolean))],
-            affectedUsers: [...new Set(queries.map(q => q.user_name).filter(Boolean))]
-        },
-        issues: commonIssues,
-        lookmlOptimizations: lookmlSuggestions,
-        priority: this.calculateOptimizationPriority(totalQueries, avgRuntime),
-        estimatedImprovements: this.estimatePerformanceGains(commonIssues)
-    };
-}
-
-identifyCommonSlowQueryPatterns(queries) {
-    const issues = [];
-    
-    // Analyze SQL patterns
-    queries.forEach(query => {
-        const sql = query.sql || '';
-        
-        if (sql.includes('SELECT *')) {
-            issues.push({
-                type: 'inefficient_select',
-                count: 1,
-                description: 'Queries using SELECT * instead of specific columns',
-                severity: 'medium'
-            });
-        }
-        
-        if (sql.toLowerCase().includes('group by') && !sql.toLowerCase().includes('aggregate_table')) {
-            issues.push({
-                type: 'missing_aggregate_table',
-                count: 1,
-                description: 'Frequent aggregations without aggregate tables',
-                severity: 'high'
-            });
-        }
-        
-        if ((sql.match(/join/gi) || []).length > 3) {
-            issues.push({
-                type: 'complex_joins',
-                count: 1,
-                description: 'Complex multi-table joins without optimization',
-                severity: 'high'
-            });
-        }
-        
-        if (query.runtime_seconds > 10 && !sql.toLowerCase().includes('index')) {
-            issues.push({
-                type: 'missing_indexes',
-                count: 1,
-                description: 'Very slow queries likely missing proper indexes',
-                severity: 'critical'
-            });
-        }
-    });
-    
-    // Consolidate duplicate issues
-    return this.consolidateIssues(issues);
-}
-
-generateLookMLSuggestions(issues, lookmlFiles) {
-    const suggestions = [];
-    
-    issues.forEach(issue => {
-        switch (issue.type) {
-            case 'missing_aggregate_table':
-                suggestions.push({
-                    type: 'aggregate_table',
-                    suggestion: 'Create aggregate tables for common grouping patterns',
-                    implementation: 'Add aggregate_table definitions in your model file',
-                    expectedImprovement: '60-80% reduction in query time',
-                    lookmlCode: `
-aggregate_table: daily_sales_summary {
-  query: {
-    dimensions: [date_date, product_category]
-    measures: [total_sales, order_count]
-  }
-  materialization: {
-    datagroup_trigger: sales_datagroup
-  }
-}`
-                });
-                break;
-                
-            case 'complex_joins':
-                suggestions.push({
-                    type: 'join_optimization',
-                    suggestion: 'Optimize join relationships and add proper indexes',
-                    implementation: 'Review join logic and add sql_on conditions with indexes',
-                    expectedImprovement: '40-60% reduction in query time',
-                    lookmlCode: `
-join: orders {
-  type: left_outer
-  sql_on: \${users.id} = \${orders.user_id} ;;
-  # Add index on orders.user_id for better performance
-}`
-                });
-                break;
-                
-            case 'missing_indexes':
-                suggestions.push({
-                    type: 'database_indexes',
-                    suggestion: 'Add database indexes for frequently joined/filtered columns',
-                    implementation: 'Work with DBA to add composite indexes',
-                    expectedImprovement: '70-90% reduction in query time',
-                    lookmlCode: `
-# In your view file, document recommended indexes:
-# CREATE INDEX idx_orders_user_date ON orders (user_id, order_date);
-# CREATE INDEX idx_products_category ON products (category, status);`
-                });
-                break;
-                
-            case 'inefficient_select':
-                suggestions.push({
-                    type: 'column_optimization',
-                    suggestion: 'Use specific dimensions instead of broad SELECT statements',
-                    implementation: 'Review dashboard tiles and remove unused dimensions',
-                    expectedImprovement: '20-30% reduction in query time',
-                    lookmlCode: `
-# Instead of selecting all dimensions, be specific:
-dimension: essential_field {
-  type: string
-  sql: \${TABLE}.essential_field ;;
-  # Hide unnecessary fields from explores
-}`
-                });
-                break;
-        }
-    });
-    
-    return suggestions;
-}
-
-calculateOptimizationPriority(queryCount, avgRuntime) {
-    const impactScore = queryCount * avgRuntime;
-    
-    if (impactScore > 100) return 'critical';
-    if (impactScore > 50) return 'high';
-    if (impactScore > 20) return 'medium';
-    return 'low';
-}
-
-consolidateIssues(issues) {
-    const consolidated = {};
-    
-    issues.forEach(issue => {
-        if (consolidated[issue.type]) {
-            consolidated[issue.type].count += issue.count;
-        } else {
-            consolidated[issue.type] = { ...issue };
-        }
-    });
-    
-    return Object.values(consolidated);
-}
-    async fetchQueryMetrics() {
         return new Promise((resolve, reject) => {
             const { spawn } = require('child_process');
             const path = require('path');
@@ -793,625 +384,465 @@ consolidateIssues(issues) {
                 },
                 stdio: ['pipe', 'pipe', 'pipe']
             });
-    
+
             let responseBuffer = '';
             let processCompleted = false;
-    
+
             toolbox.stdout.on('data', (data) => {
                 responseBuffer += data.toString();
             });
-    
+
+            toolbox.stderr.on('data', (data) => {
+                console.log(`MCP Query STDERR: ${data.toString().trim()}`);
+            });
+
             toolbox.on('close', (code) => {
                 if (processCompleted) return;
                 processCompleted = true;
                 
                 try {
-                    const queries = this.processMCPQueryResponse(responseBuffer);
+                    const queries = this.processQueryPerformanceResponse(responseBuffer);
                     resolve(queries);
                 } catch (error) {
+                    console.error('Error processing query response:', error);
                     resolve([]);
                 }
             });
-    
-            // Query using the actual field structure from your Looker instance
+
+            // Use the correct field names based on what we know works
             const command = {
                 jsonrpc: "2.0",
-                id: 3,
+                id: 1,
                 method: "tools/call",
                 params: {
                     name: "query",
                     arguments: {
-                        query: `
-                            SELECT
-                                query.id AS query_id,
-                                CAST(history.runtime AS DECIMAL(19,4)) AS runtime,
-                                query.sql AS sql_query_text,
-                                COALESCE(query_metrics.execute_main_query, 0) AS main_query_time
-                            FROM query_metrics
-                            LEFT JOIN history ON query_metrics.query_task_id = history.slug
-                            LEFT JOIN query ON history.query_id = query.id
-                            WHERE CAST(history.runtime AS DECIMAL(19,4)) > 3.0
-                            ORDER BY history.runtime DESC
-                            LIMIT 50
-                        `
+                        model: "system__activity",
+                        explore: "history", // Go back to history explore since it was working
+                        fields: [
+                            "query.id",
+                            "history.runtime",
+                            "history.created_date", 
+                            "query.model",
+                            "dashboard.title",
+                            "user.email"
+                        ],
+                        filters: {
+                            "history.runtime": ">5",
+                            "history.created_date": "7 days ago for 7 days",
+                            "history.status": "complete"
+                        },
+                        sorts: ["history.runtime desc"],
+                        limit: 50
                     }
                 }
             };
-    
+
             toolbox.stdin.write(JSON.stringify(command) + '\n');
             toolbox.stdin.end();
-    
+
             setTimeout(() => {
                 if (!processCompleted) {
                     toolbox.kill('SIGKILL');
                     resolve([]);
                 }
-            }, 10000);
+            }, 20000);
         });
     }
 
-    processMCPDashboardResponse(responseBuffer) {
-        const dashboards = [];
-        const lines = responseBuffer.split('\n');
-        
-        for (const line of lines) {
-            if (line.trim()) {
-                try {
-                    const response = JSON.parse(line.trim());
-                    
-                    if (response.result && response.result.content && Array.isArray(response.result.content)) {
-                        for (const item of response.result.content) {
-                            if (item.type === 'text' && item.text) {
-                                try {
-                                    const dashboard = JSON.parse(item.text);
-                                    dashboards.push(dashboard);
-                                } catch (e) {
-                                    // Skip invalid dashboard entries
-                                }
-                            }
-                        }
-                        break;
-                    }
-                } catch (e) {
-                    // Skip non-JSON lines
-                }
-            }
-        }
-        
-        return dashboards;
-    }
-
-    processMCPLooksResponse(responseBuffer) {
-        const looks = [];
-        const lines = responseBuffer.split('\n');
-        
-        for (const line of lines) {
-            if (line.trim()) {
-                try {
-                    const response = JSON.parse(line.trim());
-                    
-                    if (response.result && response.result.content && Array.isArray(response.result.content)) {
-                        for (const item of response.result.content) {
-                            if (item.type === 'text' && item.text) {
-                                try {
-                                    const look = JSON.parse(item.text);
-                                    looks.push(look);
-                                } catch (e) {
-                                    // Skip invalid look entries
-                                }
-                            }
-                        }
-                        break;
-                    }
-                } catch (e) {
-                    // Skip non-JSON lines
-                }
-            }
-        }
-        
-        return looks;
-    }
-
-    processMCPQueryResponse(responseBuffer) {
-        console.log('🔍 DEBUG: Query response buffer length:', responseBuffer.length);
-        
+    // Process query performance response
+    processQueryPerformanceResponse(responseBuffer) {
+        console.log('🔍 Processing query performance response...');
         const queries = [];
-        const lines = responseBuffer.split('\n');
+        
+        if (!responseBuffer || responseBuffer.length < 10) {
+            console.log('⚠️ Empty or minimal response buffer');
+            return queries;
+        }
+
+        const lines = responseBuffer.split('\n').filter(line => line.trim());
         
         for (const line of lines) {
-            if (line.trim()) {
-                try {
-                    const response = JSON.parse(line.trim());
-                    
-                    if (response.result && response.result.content && Array.isArray(response.result.content)) {
-                        for (const item of response.result.content) {
-                            if (item.type === 'text' && item.text) {
-                                try {
-                                    // Parse the query result data
-                                    const queryData = JSON.parse(item.text);
-                                    
-                                    // Transform to expected format
-                                    const query = {
-                                        query_id: queryData.query_id || queryData.id,
-                                        runtime: parseFloat(queryData.runtime || queryData.history_runtime || 0),
-                                        sql_query_text: queryData.sql_query_text || queryData.sql || 'N/A'
-                                    };
-                                    
-                                    if (query.runtime > 3) {
-                                        queries.push(query);
-                                    }
-                                } catch (e) {
-                                    console.log('Could not parse query data:', item.text.substring(0, 100));
+            try {
+                const response = JSON.parse(line);
+                
+                if (response.error) {
+                    console.log('❌ MCP Query Error:', response.error);
+                    continue;
+                }
+                
+                if (response.result && response.result.content) {
+                    for (const item of response.result.content) {
+                        if (item.type === 'text' && item.text) {
+                            try {
+                                // Handle both single objects and arrays
+                                const data = JSON.parse(item.text);
+                                const dataArray = Array.isArray(data) ? data : [data];
+                                
+                                // Debug: log the first few rows to see the actual structure
+                                if (dataArray.length > 0 && queries.length < 5) {
+                                    console.log('🔍 Sample query data structure:', JSON.stringify(dataArray[0], null, 2));
                                 }
+                                
+                                for (const row of dataArray) {
+                                    if (row.query_id || row['query.id']) {
+                                        const query = {
+                                            query_id: row.query_id || row['query.id'],
+                                            runtime_seconds: parseFloat(
+                                                row.runtime_seconds || 
+                                                row['history.runtime_in_seconds'] || 
+                                                row['history.runtime'] || 
+                                                row.runtime || 0
+                                            ),
+                                            created_date: row.created_date || row['history.created_date'],
+                                            model: row.model || row['query.model'],
+                                            explore: row.explore || row['query.explore'],
+                                            sql: row.sql || row['query.sql'] || row['query.formatted_fields'] || '',
+                                            dashboard_title: row.dashboard_title || row['dashboard.title'],
+                                            look_id: row.look_id || row['look.id'],
+                                            user_email: row.user_email || row['user.email'],
+                                            raw_data: row // Include raw data for debugging
+                                        };
+                                        
+                                        // Debug log for model/explore detection
+                                        if (!query.model || !query.explore) {
+                                            if (queries.length < 3) { // Only log first few to avoid spam
+                                                console.log(`⚠️ Missing model/explore for query ${query.query_id}:`, {
+                                                    model: query.model,
+                                                    explore: query.explore,
+                                                    available_fields: Object.keys(row),
+                                                    sample_values: {
+                                                        'query.model': row['query.model'],
+                                                        'query.explore': row['query.explore'],
+                                                        'model': row.model,
+                                                        'explore': row.explore
+                                                    }
+                                                });
+                                            }
+                                        } else {
+                                            if (queries.length < 3) {
+                                                console.log(`✅ Found model.explore: ${query.model}.${query.explore} for query ${query.query_id}`);
+                                            }
+                                        }
+                                        
+                                        if (query.runtime_seconds > 5) {
+                                            queries.push(query);
+                                        }
+                                    }
+                                }
+                            } catch (parseError) {
+                                console.log('Could not parse query data item:', item.text.substring(0, 100) + '...');
                             }
                         }
-                        break;
                     }
-                } catch (e) {
-                    // Skip non-JSON lines
                 }
+            } catch (lineError) {
+                // Skip malformed JSON lines
+                continue;
             }
         }
         
-        console.log(`🔍 DEBUG: Parsed ${queries.length} slow queries from query_metrics explore`);
+        console.log(`🐌 Found ${queries.length} slow queries for analysis`);
+        
+        // Debug: Show how many have model/explore data
+        const withModelExplore = queries.filter(q => q.model && q.explore);
+        console.log(`📊 ${withModelExplore.length} queries have model/explore data`);
+        
+        if (withModelExplore.length === 0 && queries.length > 0) {
+            console.log('🔍 Available fields in first query:', Object.keys(queries[0].raw_data));
+        }
+        
         return queries;
     }
 
-    transformLook(look) {
-        return {
-            id: look.id,
-            title: look.title || 'Untitled Look',
-            lastAccessed: new Date(look.last_accessed_at || look.updated_at || Date.now()),
-            queryCount: look.view_count || 0,
-            avgLoadTime: this.estimateLoadTime(look),
-            userCount: look.favorite_count || 0
-        };
-    }
-
-    transformLookerDashboard(dashboard, queryMetrics = []) {
-        const id = dashboard.id || dashboard.dashboard_id;
-        const title = dashboard.title || dashboard.name || dashboard.dashboard_title || 'Untitled Dashboard';
+    // Get LookML files for the models we found in slow queries (even without explore info)
+    async fetchLookMLForSlowQueries(slowQueries) {
+        console.log('📝 Fetching LookML files for slow query optimization...');
         
-        // Find related slow queries
-        const relatedSlowQueries = queryMetrics.filter(q => 
-            q.sql_query_text && (
-                q.sql_query_text.toLowerCase().includes(title.toLowerCase().replace(/\s+/g, '_')) ||
-                q.dashboard_id === id
-            )
-        );
-
-        return {
-            id: id,
-            title: title,
-            tiles: dashboard.dashboard_elements?.length || dashboard.element_count || 0,
-            lastAccessed: new Date(dashboard.updated_at || dashboard.last_updated_at || dashboard.last_accessed || Date.now()),
-            queryCount: dashboard.query_count || dashboard.view_count || 0,
-            avgLoadTime: dashboard.avg_load_time || this.estimateLoadTime(dashboard),
-            userCount: dashboard.user_count || dashboard.view_count || 0,
-            dataSourceCount: this.extractDataSourceCount(dashboard),
-            filterCount: dashboard.dashboard_filters?.length || dashboard.filter_count || 0,
-            hasSlowQueries: relatedSlowQueries.length > 0,
-            slowQueryDetails: relatedSlowQueries,
-            missingDocumentation: !dashboard.description || dashboard.description.length < 10,
-            unusedFilters: this.detectUnusedFilters(dashboard),
-            lookmlErrors: this.detectLookMLErrors(dashboard)
-        };
-    }
-
-    // AI analysis methods
-    async analyzeSlowQueriesWithAI(dashboards, queryMetrics) {
-        console.log('🤖 Analyzing slow queries with AI...');
+        // Get unique models from slow queries
+        const uniqueModels = [...new Set(
+            slowQueries
+                .filter(q => q.model)
+                .map(q => q.model)
+        )];
         
-        const slowQueries = queryMetrics.filter(q => q.runtime > 3);
-        console.log(`Found ${slowQueries.length} slow queries (runtime > 3s)`);
+        console.log(`📂 Found ${uniqueModels.length} unique models with slow queries:`, uniqueModels);
         
-        const aiAnalysis = [];
-
-        for (const query of slowQueries.slice(0, 10)) {
+        const lookmlFiles = [];
+        
+        for (const model of uniqueModels) {
             try {
-                const analysis = await this.analyzeQueryWithAI(query);
-                aiAnalysis.push(analysis);
+                console.log(`🔍 Fetching LookML for model: ${model}`);
+                const files = await this.fetchLookMLForModel(model);
+                lookmlFiles.push(...files);
             } catch (error) {
-                console.log(`⚠️ Failed to analyze query ${query.query_id}:`, error.message);
+                console.log(`⚠️ Could not fetch LookML for model ${model}:`, error.message);
             }
         }
-
-        console.log(`AI analyzed ${aiAnalysis.length} queries`);
-        return aiAnalysis;
+        
+        return lookmlFiles;
     }
 
-    async analyzeQueryWithAI(queryData) {
-        if (!process.env.GEMINI_API_KEY) {
-            return this.generateLocalQueryAnalysis(queryData);
+    // Use Looker REST API directly to get LookML files
+    async fetchLookMLForModel(model) {
+        console.log(`🔍 Fetching LookML via Looker API for model: ${model}`);
+        
+        try {
+            // First get an access token
+            const accessToken = await this.getLookerAccessToken();
+            if (!accessToken) {
+                console.log('❌ Could not get Looker access token');
+                return [];
+            }
+            
+            // Get the model files
+            const modelFiles = await this.getLookMLModelFiles(model, accessToken);
+            return modelFiles;
+            
+        } catch (error) {
+            console.log(`❌ Error fetching LookML for ${model}:`, error.message);
+            return [];
         }
+    }
 
+    async getLookerAccessToken() {
         try {
             const axios = require('axios');
             
-            const prompt = `You are a Looker performance expert. Analyze this slow-running query and provide optimization recommendations:
-
-Query ID: ${queryData.query_id}
-Runtime: ${queryData.runtime} seconds
-SQL: ${queryData.sql_query_text || 'N/A'}
-
-Please provide analysis in this JSON format:
-{
-  "queryId": "${queryData.query_id}",
-  "runtime": ${queryData.runtime},
-  "issues": [
-    {
-      "type": "performance_issue_type",
-      "description": "What's causing the slowness",
-      "severity": "high/medium/low"
+            const response = await axios.post(`${this.config.lookerUrl}/api/4.0/login`, {
+                client_id: this.config.clientId,
+                client_secret: this.config.clientSecret
+            });
+            
+            console.log('✅ Got Looker access token');
+            return response.data.access_token;
+            
+        } catch (error) {
+            console.log('❌ Failed to get Looker access token:', error.message);
+            return null;
+        }
     }
-  ],
-  "recommendations": [
-    {
-      "type": "optimization_type",
-      "action": "Specific action to take",
-      "expectedImprovement": "Expected performance gain",
-      "effort": "high/medium/low"
-    }
-  ],
-  "lookmlSuggestions": [
-    {
-      "suggestion": "LookML optimization suggestion",
-      "reason": "Why this will help performance"
-    }
-  ]
-}
 
-Focus on practical optimizations like indexing, query structure, LookML improvements, and caching strategies.`;
-
-            const response = await axios.post(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-                {
-                    contents: [{
-                        parts: [{ text: prompt }]
-                    }]
-                },
-                {
-                    timeout: 30000,
-                    headers: {
-                        'Content-Type': 'application/json'
+    async getLookMLModelFiles(model, accessToken) {
+        try {
+            const axios = require('axios');
+            
+            // Get model metadata first
+            const modelResponse = await axios.get(`${this.config.lookerUrl}/api/4.0/lookml_models/${model}`, {
+                headers: { 
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            console.log(`📋 Model ${model} metadata:`, modelResponse.data);
+            
+            // Get project files for this model
+            const projectName = modelResponse.data.project_name;
+            if (!projectName) {
+                console.log(`⚠️ No project found for model ${model}`);
+                return [];
+            }
+            
+            const filesResponse = await axios.get(`${this.config.lookerUrl}/api/4.0/projects/${projectName}/files`, {
+                headers: { 
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            console.log(`📁 Found ${filesResponse.data.length} files in project ${projectName}`);
+            
+            const lookmlFiles = [];
+            
+            // Get content for .model and .view files
+            for (const file of filesResponse.data) {
+                if (file.name.endsWith('.model') || file.name.endsWith('.view') || file.name.endsWith('.explore')) {
+                    try {
+                        const fileResponse = await axios.get(`${this.config.lookerUrl}/api/4.0/projects/${projectName}/files/file`, {
+                            params: { file_path: file.name },
+                            headers: { 
+                                'Authorization': `Bearer ${accessToken}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        
+                        const lookmlFile = {
+                            model: model,
+                            name: file.name,
+                            content: fileResponse.data,
+                            type: this.determineLookMLType(fileResponse.data),
+                            joins: this.extractJoins(fileResponse.data),
+                            dimensions: this.extractDimensions(fileResponse.data),
+                            measures: this.extractMeasures(fileResponse.data),
+                            explores: this.extractExplores(fileResponse.data)
+                        };
+                        
+                        lookmlFiles.push(lookmlFile);
+                        console.log(`📄 Added LookML file: ${file.name} (${lookmlFile.type})`);
+                        
+                    } catch (fileError) {
+                        console.log(`⚠️ Could not fetch file ${file.name}:`, fileError.message);
                     }
                 }
-            );
-
-            const geminiText = response.data.candidates[0].content.parts[0].text;
-            const jsonMatch = geminiText.match(/\{[\s\S]*\}/);
-            
-            if (jsonMatch) {
-                return JSON.parse(jsonMatch[0]);
-            } else {
-                throw new Error('Could not parse Gemini response');
             }
+            
+            return lookmlFiles;
+            
         } catch (error) {
-            console.log('⚠️ Gemini analysis failed, using local analysis');
-            return this.generateLocalQueryAnalysis(queryData);
+            console.log(`❌ Error getting model files for ${model}:`, error.message);
+            return [];
         }
     }
 
-    generateLocalQueryAnalysis(queryData) {
-        const sqlText = queryData.sql_query_text || '';
-        const issues = [];
-        const recommendations = [];
-        const lookmlSuggestions = [];
-
-        // Basic SQL analysis
-        if (sqlText.includes('SELECT *')) {
-            issues.push({
-                type: 'inefficient_select',
-                description: 'Query uses SELECT * which fetches unnecessary columns',
-                severity: 'medium'
-            });
-            recommendations.push({
-                type: 'column_optimization',
-                action: 'Specify only needed columns in SELECT statement',
-                expectedImprovement: '20-40% faster query execution',
-                effort: 'low'
-            });
-        }
-
-        if (sqlText.toLowerCase().includes('join') && !sqlText.toLowerCase().includes('index')) {
-            issues.push({
-                type: 'missing_indexes',
-                description: 'Complex joins without proper indexing',
-                severity: 'high'
-            });
-            recommendations.push({
-                type: 'indexing',
-                action: 'Add indexes on join columns in the database',
-                expectedImprovement: '50-80% faster joins',
-                effort: 'medium'
-            });
-        }
-
-        if (queryData.runtime > 5) {
-            lookmlSuggestions.push({
-                suggestion: 'Consider adding aggregate tables or materialized views',
-                reason: 'Very slow queries benefit from pre-computed aggregations'
-            });
-            lookmlSuggestions.push({
-                suggestion: 'Implement incremental PDTs (Persistent Derived Tables)',
-                reason: 'Reduces computation time for large datasets'
-            });
-        }
-
-        return {
-            queryId: queryData.query_id,
-            runtime: queryData.runtime,
-            issues,
-            recommendations,
-            lookmlSuggestions
-        };
-    }
-
-    // Analysis methods
-    async analyzePerformance(dashboards, queryMetrics = []) {
-        console.log('⚡ Analyzing performance metrics...');
+    processLookMLResponse(responseBuffer, model) {
+        const files = [];
         
-        let performanceScore = 100;
-        const issues = [];
-
-        // Analyze slow queries with AI if available
-        if (queryMetrics.length > 0) {
-            const slowQueryAnalysis = await this.analyzeSlowQueriesWithAI(dashboards, queryMetrics);
-            
-            for (const analysis of slowQueryAnalysis) {
-                performanceScore -= 15;
-                
-                const lookmlSuggestions = analysis.lookmlSuggestions.map(s => s.suggestion).join('; ');
-                const aiRecommendations = analysis.recommendations.map(r => r.action).join('; ');
-                
-                issues.push({
-                    type: 'performance',
-                    severity: 'high',
-                    dashboard: `Query ${analysis.queryId}`,
-                    issue: `Slow query (${analysis.runtime}s): ${analysis.issues.map(i => i.description).join(', ')}`,
-                    recommendation: `AI Analysis: ${aiRecommendations}. LookML: ${lookmlSuggestions}`,
-                    aiPowered: true,
-                    queryAnalysis: analysis
-                });
-            }
+        if (!responseBuffer || responseBuffer.length < 10) {
+            return files;
         }
 
-        // Dashboard performance analysis
-        dashboards.forEach(dash => {
-            if (dash.avgLoadTime > 3.0) {
-                performanceScore -= 10;
-                issues.push({
-                    type: 'performance',
-                    severity: 'high',
-                    dashboard: dash.title,
-                    issue: `Slow loading time: ${dash.avgLoadTime}s`,
-                    recommendation: 'Optimize queries, consider data modeling improvements, add proper indexing'
-                });
-            }
-
-            if (dash.hasSlowQueries) {
-                performanceScore -= 5;
-                issues.push({
-                    type: 'performance',
-                    severity: 'medium',
-                    dashboard: dash.title,
-                    issue: 'Contains slow-running queries',
-                    recommendation: 'Review query logic, add appropriate indexes, consider aggregate tables'
-                });
-            }
-
-            if (dash.tiles > 15) {
-                performanceScore -= 5;
-                issues.push({
-                    type: 'performance',
-                    severity: 'low',
-                    dashboard: dash.title,
-                    issue: `High tile count: ${dash.tiles}`,
-                    recommendation: 'Consider breaking into multiple focused dashboards'
-                });
-            }
-        });
-
-        this.healthMetrics.performance = Math.max(0, performanceScore);
-        return issues;
-    }
-
-    analyzeGovernance(dashboards, looks = []) {
-        console.log('📋 Analyzing governance compliance...');
+        const lines = responseBuffer.split('\n').filter(line => line.trim());
         
-        let governanceScore = 100;
-        const issues = [];
-
-        dashboards.forEach(dash => {
-            if (dash.missingDocumentation) {
-                governanceScore -= 15;
-                issues.push({
-                    type: 'governance',
-                    severity: 'high',
-                    dashboard: dash.title,
-                    issue: 'Missing documentation',
-                    recommendation: 'Add descriptions for dashboard and key metrics'
-                });
-            }
-
-            if (dash.unusedFilters.length > 0) {
-                governanceScore -= 8;
-                issues.push({
-                    type: 'governance',
-                    severity: 'medium',
-                    dashboard: dash.title,
-                    issue: `Unused filters: ${dash.unusedFilters.join(', ')}`,
-                    recommendation: 'Remove unused filters to improve user experience'
-                });
-            }
-
-            if (dash.lookmlErrors.length > 0) {
-                governanceScore -= 12;
-                issues.push({
-                    type: 'governance',
-                    severity: 'high',
-                    dashboard: dash.title,
-                    issue: `LookML issues: ${dash.lookmlErrors.join(', ')}`,
-                    recommendation: 'Fix LookML errors to ensure data accuracy'
-                });
-            }
-        });
-
-        this.healthMetrics.governance = Math.max(0, governanceScore);
-        return issues;
-    }
-
-    analyzeUsage(dashboards, looks = []) {
-        console.log('👥 Analyzing usage patterns...');
-        
-        let usageScore = 100;
-        const issues = [];
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-        dashboards.forEach(dash => {
-            if (dash.lastAccessed < thirtyDaysAgo) {
-                usageScore -= 20;
-                issues.push({
-                    type: 'usage',
-                    severity: 'high',
-                    dashboard: dash.title,
-                    issue: 'Low usage - not accessed in 30 days',
-                    recommendation: 'Consider archiving or promoting to increase adoption'
-                });
-            }
-
-            if (dash.userCount < 3) {
-                usageScore -= 10;
-                issues.push({
-                    type: 'usage',
-                    severity: 'medium',
-                    dashboard: dash.title,
-                    issue: `Low user engagement: ${dash.userCount} users`,
-                    recommendation: 'Review dashboard relevance and promote to target audience'
-                });
-            }
-
-            if (dash.queryCount > 0 && dash.userCount > 0) {
-                const queriesPerUser = dash.queryCount / dash.userCount;
-                if (queriesPerUser < 1) {
-                    usageScore -= 5;
-                    issues.push({
-                        type: 'usage',
-                        severity: 'low',
-                        dashboard: dash.title,
-                        issue: 'Low interaction rate per user',
-                        recommendation: 'Improve dashboard interactivity and user training'
-                    });
-                }
-            }
-        });
-
-        this.healthMetrics.usage = Math.max(0, usageScore);
-        return issues;
-    }
-
-    analyzeDataQuality(dashboards, systemMetrics, queryMetrics = []) {
-        console.log('🔍 Analyzing data quality...');
-        
-        let dataQualityScore = systemMetrics.dataFreshnessScore || 85;
-        const issues = [];
-
-        dashboards.forEach(dash => {
-            if (dash.dataSourceCount > 5) {
-                dataQualityScore -= 8;
-                issues.push({
-                    type: 'dataQuality',
-                    severity: 'medium',
-                    dashboard: dash.title,
-                    issue: `Multiple data sources: ${dash.dataSourceCount}`,
-                    recommendation: 'Consider data consolidation for consistency'
-                });
-            }
-        });
-
-        if (systemMetrics.dataFreshnessScore && systemMetrics.dataFreshnessScore < 70) {
-            issues.push({
-                type: 'dataQuality',
-                severity: 'high',
-                dashboard: 'System-wide',
-                issue: 'Data freshness below threshold',
-                recommendation: 'Review ETL processes and data refresh schedules'
-            });
-        }
-
-        const errorProneQueries = queryMetrics.filter(q => q.runtime > 10);
-        if (errorProneQueries.length > 5) {
-            dataQualityScore -= 15;
-            issues.push({
-                type: 'dataQuality',
-                severity: 'high',
-                dashboard: 'Query Performance',
-                issue: `${errorProneQueries.length} queries taking over 10 seconds`,
-                recommendation: 'Optimize slow queries to prevent timeouts and data quality issues'
-            });
-        }
-
-        this.healthMetrics.dataQuality = Math.max(0, dataQualityScore);
-        return issues;
-    }
-
-    // AI recommendations
-    async generateAIRecommendations(allIssues, queryAnalysis = []) {
-        console.log('🤖 Generating AI-powered recommendations...');
-        
-        if (process.env.GEMINI_API_KEY) {
+        for (const line of lines) {
             try {
-                return await this.generateGeminiRecommendations(allIssues, queryAnalysis);
-            } catch (error) {
-                console.log('⚠️ Gemini API failed, using local analysis');
+                const response = JSON.parse(line);
+                
+                if (response.result && response.result.content) {
+                    for (const item of response.result.content) {
+                        if (item.type === 'text' && item.text) {
+                            try {
+                                const lookmlData = JSON.parse(item.text);
+                                
+                                const file = {
+                                    model: model,
+                                    name: lookmlData.name || `${model}_content`,
+                                    content: lookmlData.content || lookmlData.lookml_content || item.text,
+                                    type: this.determineLookMLType(lookmlData.content || item.text),
+                                    joins: this.extractJoins(lookmlData.content || item.text),
+                                    dimensions: this.extractDimensions(lookmlData.content || item.text),
+                                    measures: this.extractMeasures(lookmlData.content || item.text),
+                                    explores: this.extractExplores(lookmlData.content || item.text)
+                                };
+                                
+                                files.push(file);
+                            } catch (parseError) {
+                                // If it's not JSON, treat as raw LookML
+                                files.push({
+                                    model: model,
+                                    name: `${model}_raw`,
+                                    content: item.text,
+                                    type: 'raw_lookml',
+                                    joins: this.extractJoins(item.text),
+                                    dimensions: this.extractDimensions(item.text),
+                                    measures: this.extractMeasures(item.text),
+                                    explores: this.extractExplores(item.text)
+                                });
+                            }
+                        }
+                    }
+                }
+            } catch (lineError) {
+                continue;
             }
         }
         
-        return this.generateLocalRecommendations(allIssues, queryAnalysis);
+        console.log(`📝 Extracted ${files.length} LookML files for model ${model}`);
+        return files;
     }
 
-    async generateGeminiRecommendations(allIssues, queryAnalysis) {
+    // Analyze slow queries with Gemini AI - updated to work without explore data
+    async analyzeSlowQueriesWithGemini(slowQueries, lookmlFiles) {
+        console.log('🤖 Analyzing slow queries with Gemini AI...');
+        
+        if (!process.env.GEMINI_API_KEY) {
+            console.log('⚠️ No Gemini API key - using local analysis');
+            return this.analyzeSlowQueriesLocally(slowQueries, lookmlFiles);
+        }
+
+        const analyses = [];
+        
+        // Group queries by model since we don't have explore data
+        const queryGroups = this.groupQueriesByModel(slowQueries);
+        
+        for (const [model, queries] of Object.entries(queryGroups)) {
+            const relatedLookML = lookmlFiles.filter(f => f.model === model);
+            
+            try {
+                const analysis = await this.analyzeModelWithGemini(
+                    model, 
+                    queries, 
+                    relatedLookML
+                );
+                analyses.push(analysis);
+            } catch (error) {
+                console.log(`⚠️ Gemini analysis failed for model ${model}:`, error.message);
+                // Fallback to local analysis
+                const localAnalysis = this.analyzeModelLocally(model, queries, relatedLookML);
+                analyses.push(localAnalysis);
+            }
+        }
+        
+        return analyses;
+    }
+
+    async analyzeModelWithGemini(model, queries, lookmlFiles) {
         const axios = require('axios');
         
-        const prompt = `You are a Looker dashboard health expert. Analyze these dashboard issues and query performance data to provide strategic recommendations:
+        const avgRuntime = queries.reduce((sum, q) => sum + q.runtime_seconds, 0) / queries.length;
+        const totalQueries = queries.length;
+        const lookmlContent = lookmlFiles.map(f => f.content).join('\n---\n');
+        const availableExplores = [...new Set(lookmlFiles.flatMap(f => f.explores))];
+        
+        const prompt = `You are a Looker performance optimization expert. Analyze these slow queries and their LookML to suggest specific optimizations:
 
-Issues Found:
-${JSON.stringify(allIssues.slice(0, 20), null, 2)}
+MODEL: ${model}
+PERFORMANCE STATS:
+- ${totalQueries} slow queries (avg: ${avgRuntime.toFixed(2)}s)
+- Queries taking 5+ seconds in the past 7 days
 
-Query Analysis (AI-powered):
-${JSON.stringify(queryAnalysis.slice(0, 5), null, 2)}
+AVAILABLE EXPLORES IN MODEL: ${availableExplores.join(', ') || 'Unknown'}
 
-Provide actionable recommendations in this exact JSON format:
+SAMPLE SLOW QUERIES:
+${queries.slice(0, 5).map(q => `Query ${q.query_id}: ${q.runtime_seconds}s\nDashboard: ${q.dashboard_title}\nUser: ${q.user_email}`).join('\n\n')}
+
+LOOKML CONTEXT (${lookmlFiles.length} files):
+${lookmlContent.substring(0, 3000)}...
+
+Provide optimization recommendations in this JSON format:
 {
-  "priorities": [
+  "model": "${model}",
+  "performanceIssues": [
     {
-      "priority": 1,
-      "title": "Brief title",
-      "description": "Detailed description including query optimization insights",
-                  "estimatedImpact": "High/Medium/Low",
-            "estimatedEffort": "High/Medium/Low", 
-            "timeframe": "1-2 weeks",
-            "includesQueryOptimization": true/false
-        }
-    ],
-    "strategicRecommendations": [
-        {
-            "category": "Performance/Governance/Usage/QueryOptimization",
-            "recommendation": "Specific actionable recommendation",
-            "rationale": "Why this is important",
-            "expectedOutcome": "What will improve",
-            "lookmlImpact": "How this affects LookML development"
-        }
-    ],
-    "queryOptimizationPlan": {
-        "immediateActions": ["List of quick wins"],
-        "mediumTermGoals": ["List of medium-term optimizations"],
-        "longTermStrategy": "Overall optimization strategy"
+      "issue": "Specific performance problem identified",
+      "severity": "critical|high|medium|low",
+      "affectedQueries": 5,
+      "cause": "Root cause explanation",
+      "likelyExplore": "Best guess at which explore is causing issues"
     }
+  ],
+  "lookmlOptimizations": [
+    {
+      "type": "aggregate_table|index|join_optimization|dimension_cleanup|explore_optimization",
+      "recommendation": "Specific LookML change to make",
+      "expectedImprovement": "Expected performance gain",
+      "implementation": "How to implement this change",
+      "lookmlCode": "view: example { aggregate_table: fast_summary { ... } }",
+      "targetExplore": "Which explore this applies to"
+    }
+  ],
+  "databaseOptimizations": [
+    {
+      "type": "index|partitioning|materialized_view",
+      "recommendation": "Database-level optimization",
+      "sqlCode": "CREATE INDEX idx_name ON table (columns);"
+    }
+  ],
+  "priority": "critical|high|medium|low",
+  "estimatedSpeedup": "60-80% faster"
 }
 
-Focus on practical, actionable recommendations that address the most critical issues first.`;
+Focus on identifying which explores are likely causing the performance issues and provide the most impactful optimizations.`;
 
         const response = await axios.post(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
@@ -1421,7 +852,7 @@ Focus on practical, actionable recommendations that address the most critical is
                 }]
             },
             {
-                timeout: 30000,
+                timeout: 45000,
                 headers: {
                     'Content-Type': 'application/json'
                 }
@@ -1432,403 +863,183 @@ Focus on practical, actionable recommendations that address the most critical is
         const jsonMatch = geminiText.match(/\{[\s\S]*\}/);
         
         if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            
-            return {
-                ...parsed,
-                overallHealthGrade: this.calculateOverallHealth(),
-                nextReviewDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-                aiPowered: true,
-                queryAnalysisIncluded: queryAnalysis.length > 0
-            };
+            return JSON.parse(jsonMatch[0]);
         } else {
             throw new Error('Could not parse Gemini response');
         }
     }
 
-    generateLocalRecommendations(allIssues, queryAnalysis) {
-        const priorities = [];
-        const strategicRecommendations = [];
+    // Helper methods for LookML parsing
+    determineLookMLType(content) {
+        if (content.includes('explore:')) return 'explore';
+        if (content.includes('view:')) return 'view';
+        if (content.includes('dashboard:')) return 'dashboard';
+        return 'unknown';
+    }
 
-        const highImpactIssues = allIssues.filter(issue => 
-            issue.severity === 'high' && 
-            (issue.type === 'performance' || issue.type === 'governance')
-        );
+    extractJoins(content) {
+        const joinMatches = content.match(/join:\s*(\w+)/g) || [];
+        return joinMatches.map(match => match.replace('join:', '').trim());
+    }
 
-        const queryOptimizationIssues = allIssues.filter(issue => 
-            issue.aiPowered || issue.type === 'performance'
-        );
+    extractDimensions(content) {
+        const dimMatches = content.match(/dimension:\s*(\w+)/g) || [];
+        return dimMatches.map(match => match.replace('dimension:', '').trim());
+    }
 
-        if (queryOptimizationIssues.length > 0) {
-            priorities.push({
-                priority: 1,
-                title: 'Optimize Query Performance with AI Insights',
-                description: `Found ${queryOptimizationIssues.length} performance issues with AI-analyzed solutions. Focus on query optimization, indexing, and LookML improvements.`,
-                estimatedImpact: 'High',
-                estimatedEffort: 'Medium',
-                timeframe: '1-2 weeks',
-                includesQueryOptimization: true
-            });
-        }
+    extractMeasures(content) {
+        const measureMatches = content.match(/measure:\s*(\w+)/g) || [];
+        return measureMatches.map(match => match.replace('measure:', '').trim());
+    }
 
-        if (highImpactIssues.length > 0) {
-            priorities.push({
-                priority: 2,
-                title: 'Address Critical Issues',
-                description: `Found ${highImpactIssues.length} high-priority issues affecting user experience and data reliability`,
-                estimatedImpact: 'High',
-                estimatedEffort: 'Medium',
-                timeframe: '2-3 weeks',
-                includesQueryOptimization: false
-            });
-        }
+    extractExplores(content) {
+        const exploreMatches = content.match(/explore:\s*(\w+)/g) || [];
+        return exploreMatches.map(match => match.replace('explore:', '').trim());
+    }
 
-        if (queryAnalysis.length > 0) {
-            strategicRecommendations.push({
-                category: 'QueryOptimization',
-                recommendation: 'Implement systematic query performance monitoring and optimization',
-                rationale: 'AI analysis revealed specific optimization opportunities in slow queries',
-                expectedOutcome: 'Reduce query execution times by 40-70%',
-                lookmlImpact: 'Requires LookML updates for aggregate tables and efficient joins'
-            });
-        }
+    groupQueriesByModel(queries) {
+        const groups = {};
+        queries.forEach(query => {
+            if (query.model) {
+                if (!groups[query.model]) groups[query.model] = [];
+                groups[query.model].push(query);
+            }
+        });
+        return groups;
+    }
 
-        const queryOptimizationPlan = {
-            immediateActions: [
-                'Add indexes on frequently joined columns',
-                'Replace SELECT * with specific column selections',
-                'Implement basic query caching'
-            ],
-            mediumTermGoals: [
-                'Create aggregate tables for common calculations',
-                'Implement incremental PDTs',
-                'Optimize complex join patterns'
-            ],
-            longTermStrategy: 'Establish AI-powered query performance monitoring and automatic optimization suggestions'
-        };
-
+    analyzeModelLocally(model, queries, lookmlFiles) {
         return {
-            priorities,
-            strategicRecommendations,
-            queryOptimizationPlan,
-            overallHealthGrade: this.calculateOverallHealth(),
-            nextReviewDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-            aiPowered: false,
-            queryAnalysisIncluded: queryAnalysis.length > 0
+            model: model,
+            performanceIssues: [
+                {
+                    issue: `${queries.length} slow queries detected in model ${model}`,
+                    severity: 'medium',
+                    affectedQueries: queries.length,
+                    cause: 'Local analysis - enable Gemini for detailed insights'
+                }
+            ],
+            lookmlOptimizations: [
+                {
+                    type: 'general',
+                    recommendation: 'Enable Gemini API for AI-powered LookML optimization recommendations',
+                    expectedImprovement: 'Detailed analysis available with AI',
+                    implementation: 'Set GEMINI_API_KEY in environment variables'
+                }
+            ],
+            priority: 'medium',
+            estimatedSpeedup: 'Analysis pending'
         };
     }
 
-    // Helper methods
-    calculateAvgResponseTime() {
-        if (this.mcpMetrics.callsPerformed === 0) return 0;
-        return Math.round((Date.now() - this.mcpClient.startTime) / this.mcpMetrics.callsPerformed);
-    }
-
-    extractDataSourceCount(dashboard) {
-        if (!dashboard.dashboard_elements) return 1;
-        
-        const sources = new Set();
-        dashboard.dashboard_elements.forEach(element => {
-            if (element.look && element.look.model) {
-                sources.add(element.look.model);
-            }
-            if (element.query && element.query.model) {
-                sources.add(element.query.model);
-            }
-        });
-        
-        return sources.size || 1;
-    }
-
-    detectUnusedFilters(dashboard) {
-        const unusedFilters = [];
-        if (dashboard.dashboard_filters) {
-            dashboard.dashboard_filters.forEach(filter => {
-                if (!filter.default_value) {
-                    unusedFilters.push(filter.name || filter.title || 'unnamed_filter');
-                }
-            });
-        }
-        return unusedFilters;
-    }
-
-    detectLookMLErrors(dashboard) {
-        const errors = [];
-        // This would typically check for real LookML validation errors
-        // For now, we'll detect based on common patterns
-        if (dashboard.dashboard_elements) {
-            dashboard.dashboard_elements.forEach(element => {
-                if (element.query && element.query.client_id && !element.query.model) {
-                    errors.push('missing_model_reference');
-                }
-            });
-        }
-        return errors;
-    }
-
-    estimateLoadTime(item) {
-        // Estimate based on complexity indicators
-        const tileCount = item.dashboard_elements?.length || 1;
-        const baseTime = 0.5;
-        const complexityFactor = tileCount * 0.1;
-        return Math.round((baseTime + complexityFactor) * 10) / 10;
-    }
-
-    estimateUserCount(dashboards) {
-        // Estimate total users based on individual dashboard user counts
-        const uniqueUsers = new Set();
-        dashboards.forEach(dash => {
-            if (dash.user_count) {
-                for (let i = 0; i < dash.user_count; i++) {
-                    uniqueUsers.add(`user_${dash.id}_${i}`);
-                }
-            }
-        });
-        return Math.max(uniqueUsers.size, 10);
-    }
-
-    calculateSystemLoad(dashboards) {
-        const avgQueries = dashboards.reduce((sum, dash) => sum + (dash.query_count || 0), 0) / dashboards.length;
-        return Math.round((avgQueries / 100) * 10) / 10;
-    }
-
-    calculateDataFreshness(dashboards) {
-        const now = new Date();
-        const avgAge = dashboards.reduce((sum, dash) => {
-            const ageInDays = (now - dash.lastAccessed) / (1000 * 60 * 60 * 24);
-            return sum + ageInDays;
-        }, 0) / dashboards.length;
-        
-        const freshnessScore = Math.max(0, 100 - (avgAge * 3));
-        return Math.round(freshnessScore);
-    }
-
-    calculateOverallHealth() {
-        const weights = {
-            performance: 0.25,
-            governance: 0.25,
-            usage: 0.20,
-            dataQuality: 0.20,
-            security: 0.10
-        };
-
-        this.healthMetrics.security = 75; // Default security score
-
-        const weightedScore = Object.keys(weights).reduce((total, metric) => {
-            return total + (this.healthMetrics[metric] * weights[metric]);
-        }, 0);
-
-        if (weightedScore >= 90) return 'A';
-        if (weightedScore >= 80) return 'B';
-        if (weightedScore >= 70) return 'C';
-        if (weightedScore >= 60) return 'D';
-        return 'F';
+    analyzeSlowQueriesLocally(slowQueries, lookmlFiles) {
+        return slowQueries.map(query => ({
+            query_id: query.query_id,
+            runtime_seconds: query.runtime_seconds,
+            model: query.model,
+            explore: query.explore,
+            issues: ['Local analysis - needs Gemini for detailed insights'],
+            recommendations: ['Enable Gemini API for AI-powered recommendations']
+        }));
     }
 
     // Main diagnostic method
-// Fixed runDiagnostic method - replace your existing one with this
+    async runQueryPerformanceDiagnostic() {
+        console.log('🏁 Starting Query Performance Diagnostic...');
+        
+        try {
+            const mcpConnected = await this.initializeMCP();
+            if (!mcpConnected) {
+                throw new Error('MCP initialization failed');
+            }
 
-async runDiagnostic() {
-    console.log('🩺 Starting Looker Health Diagnostic with Enhanced Query Analysis...');
-    
-    try {
-        // Test Gemini connection if available
-        if (process.env.GEMINI_API_KEY) {
-            await this.testGeminiConnection();
+            // First, get available models to understand what's accessible
+            const models = await this.getAvailableModels();
+            console.log(`Found ${models.length} available models`);
+
+            // Test query_metrics explore access
+            console.log('Testing query_metrics explore access...');
+            await this.testQueryMetricsExplore();
+
+            // Get slow queries with explore context
+            this.slowQueries = await this.fetchSlowQueriesWithContext();
+            
+            if (this.slowQueries.length === 0) {
+                console.log('✅ No slow queries found (>5s runtime in past 7 days)');
+                return this.generateNoSlowQueriesReport();
+            }
+
+            // Get LookML for the models with slow queries (rather than model/explore combinations)
+            this.lookmlFiles = await this.fetchLookMLForSlowQueries(this.slowQueries);
+
+            // Analyze with Gemini AI
+            this.optimizations = await this.analyzeSlowQueriesWithGemini(this.slowQueries, this.lookmlFiles);
+
+            // Generate comprehensive report
+            const report = {
+                timestamp: new Date(),
+                summary: {
+                    totalSlowQueries: this.slowQueries.length,
+                    uniqueModels: [...new Set(this.slowQueries.map(q => q.model).filter(Boolean))].length,
+                    avgRuntime: this.slowQueries.reduce((sum, q) => sum + q.runtime_seconds, 0) / this.slowQueries.length,
+                    lookmlFilesAnalyzed: this.lookmlFiles.length,
+                    availableModels: models.length
+                },
+                slowQueries: this.slowQueries,
+                optimizations: this.optimizations,
+                lookmlFiles: this.lookmlFiles.map(f => ({ 
+                    model: f.model, 
+                    name: f.name, 
+                    type: f.type,
+                    joins: f.joins,
+                    dimensions: f.dimensions?.length || 0,
+                    measures: f.measures?.length || 0,
+                    explores: f.explores
+                })),
+                recommendations: this.generateTopRecommendations(),
+                models: models
+            };
+
+            console.log('✅ Query Performance Diagnostic completed');
+            console.log(`🐌 Analyzed ${this.slowQueries.length} slow queries`);
+            console.log(`🏗️ Generated ${this.optimizations.length} optimization strategies`);
+            
+            return report;
+
+        } catch (error) {
+            console.error('❌ Query Performance Diagnostic failed:', error);
+            throw error;
         }
+    }
 
-        const mcpConnected = await this.initializeMCP();
-        if (!mcpConnected) {
-            throw new Error('MCP initialization failed');
-        }
-
-        // 1. Collect basic dashboard and look data
-        const data = await this.fetchAllDashboardsWithPagination();
-        
-        if (data.dashboards.length === 0) {
-            throw new Error('No dashboards found. Check your Looker credentials and permissions.');
-        }
-        
-        // 2. Enhanced: Collect slow queries with full context
-        const slowQueries = await this.fetchQueryMetricsEnhanced();
-        console.log(`Found ${slowQueries.length} slow queries for optimization`);
-        
-        // 3. Enhanced: Get LookML files for optimization analysis
-        const lookmlFiles = await this.fetchLookMLForSlowQueries(slowQueries);
-        
-        // 4. Enhanced: Analyze LookML optimization opportunities
-        const lookmlOptimizations = await this.analyzeLookMLOptimizations(slowQueries, lookmlFiles);
-        
-        // 5. Run analysis methods (updated to use enhanced query data)
-        const queryAnalysis = await this.analyzeSlowQueriesWithAI(data.dashboards, slowQueries);
-        const performanceIssues = await this.analyzePerformance(data.dashboards, slowQueries);
-        const governanceIssues = this.analyzeGovernance(data.dashboards, data.looks || []);
-        const usageIssues = this.analyzeUsage(data.dashboards, data.looks || []);
-        const dataQualityIssues = this.analyzeDataQuality(data.dashboards, data.systemMetrics, slowQueries);
-        
-        // 6. Combine all issues
-        const allIssues = [
-            ...performanceIssues,
-            ...governanceIssues,
-            ...usageIssues,
-            ...dataQualityIssues
-        ];
-
-        // 7. Generate AI recommendations
-        const aiRecommendations = await this.generateAIRecommendations(allIssues, queryAnalysis);
-        
-        // 8. Enhanced results structure
-        const results = {
+    generateNoSlowQueriesReport() {
+        return {
             timestamp: new Date(),
-            healthMetrics: this.healthMetrics,
-            overallGrade: aiRecommendations.overallHealthGrade,
-            totalIssuesFound: allIssues.length,
-            issuesByType: {
-                performance: performanceIssues.length,
-                governance: governanceIssues.length,
-                usage: usageIssues.length,
-                dataQuality: dataQualityIssues.length
+            summary: {
+                totalSlowQueries: 0,
+                message: 'No slow queries detected (>5s runtime in past 7 days)',
+                status: 'healthy'
             },
-            
-            // Enhanced query and LookML data
-            slowQueryAnalysis: {
-                totalSlowQueries: slowQueries.length,
-                byModel: this.groupQueriesByModel(slowQueries),
-                topBottlenecks: slowQueries.slice(0, 10),
-                lookmlOptimizations: lookmlOptimizations
-            },
-            
-            // Standard diagnostic data
-            detailedIssues: allIssues,
-            aiRecommendations: aiRecommendations,
-            queryAnalysis: queryAnalysis,
-            systemInfo: data.systemMetrics,
-            enhancedFeatures: {
-                paginationEnabled: true,
-                aiQueryAnalysis: queryAnalysis.length > 0,
-                lookmlOptimizations: lookmlOptimizations.length > 0,
-                mcpToolsUsed: ['get_dashboards', 'get_looks', 'query'],
-                totalMCPCalls: this.mcpMetrics.callsPerformed
-            }
+            recommendations: [
+                'Query performance is currently good',
+                'Consider monitoring for queries >3s if you want more proactive optimization',
+                'Set up regular performance monitoring to catch issues early'
+            ]
         };
+    }
 
-        console.log('✅ Health diagnostic completed successfully');
-        console.log(`📊 Analyzed ${data.dashboards.length} dashboards, ${data.looks?.length || 0} looks`);
-        console.log(`🤖 AI analyzed ${queryAnalysis.length} slow queries`);
-        console.log(`🏗️ Found ${lookmlOptimizations.length} LookML optimization opportunities`);
-        console.log(`🔌 MCP made ${this.mcpMetrics.callsPerformed} calls with ${this.mcpMetrics.errors} errors`);
+    generateTopRecommendations() {
+        if (this.optimizations.length === 0) return [];
         
-        return results;
-
-    } catch (error) {
-        console.error('❌ Health diagnostic failed:', error);
-        throw error;
+        return this.optimizations
+            .filter(opt => opt.priority === 'critical' || opt.priority === 'high')
+            .slice(0, 5)
+            .map(opt => ({
+                model: opt.model,
+                topRecommendation: opt.lookmlOptimizations?.[0]?.recommendation || 'See full analysis',
+                expectedImprovement: opt.estimatedSpeedup || 'Significant improvement expected'
+            }));
     }
 }
 
-// Add this missing helper method
-groupQueriesByModel(queries) {
-    const groups = {};
-    
-    queries.forEach(query => {
-        if (query.model) {
-            if (!groups[query.model]) {
-                groups[query.model] = [];
-            }
-            groups[query.model].push(query);
-        }
-    });
-    
-    // Transform to summary format
-    const summary = {};
-    Object.keys(groups).forEach(model => {
-        summary[model] = {
-            totalQueries: groups[model].length,
-            avgRuntime: Math.round(
-                groups[model].reduce((sum, q) => sum + q.runtime_seconds, 0) / groups[model].length * 100
-            ) / 100,
-            explores: [...new Set(groups[model].map(q => q.explore).filter(Boolean))]
-        };
-    });
-    
-    return summary;
-}
-
-// Add this missing method for LookML response processing
-processLookMLResponse(responseBuffer, modelName) {
-    const files = [];
-    const lines = responseBuffer.split('\n');
-    
-    for (const line of lines) {
-        if (line.trim()) {
-            try {
-                const response = JSON.parse(line.trim());
-                
-                if (response.result && response.result.content && Array.isArray(response.result.content)) {
-                    for (const item of response.result.content) {
-                        if (item.type === 'text' && item.text) {
-                            try {
-                                const lookmlData = JSON.parse(item.text);
-                                
-                                // Transform LookML data to expected format
-                                const file = {
-                                    model: modelName,
-                                    name: lookmlData.name || lookmlData.file_name || 'unknown',
-                                    type: lookmlData.type || 'view',
-                                    explore: lookmlData.explore_name,
-                                    content: lookmlData.content || lookmlData.lookml_content || ''
-                                };
-                                
-                                files.push(file);
-                            } catch (e) {
-                                console.log('Could not parse LookML data');
-                            }
-                        }
-                    }
-                    break;
-                }
-            } catch (e) {
-                // Skip non-JSON lines
-            }
-        }
-    }
-    
-    console.log(`📝 Found ${files.length} LookML files for model ${modelName}`);
-    return files;
-}
-
-// Add this missing method for performance gain estimation
-estimatePerformanceGains(issues) {
-    let totalGain = 0;
-    let complexity = 'low';
-    
-    issues.forEach(issue => {
-        switch (issue.type) {
-            case 'missing_aggregate_table':
-                totalGain += 70; // 70% improvement potential
-                complexity = 'high';
-                break;
-            case 'complex_joins':
-                totalGain += 50; // 50% improvement potential
-                complexity = 'medium';
-                break;
-            case 'missing_indexes':
-                totalGain += 80; // 80% improvement potential
-                complexity = 'medium';
-                break;
-            case 'inefficient_select':
-                totalGain += 25; // 25% improvement potential
-                complexity = 'low';
-                break;
-        }
-    });
-    
-    return {
-        estimatedSpeedupPercentage: Math.min(totalGain, 90), // Cap at 90%
-        implementationComplexity: complexity,
-        timeToImplement: complexity === 'high' ? '2-4 weeks' : 
-                        complexity === 'medium' ? '1-2 weeks' : '1-3 days'
-    };
-}
-}
-module.exports = { LookerHealthDiagnostic };
+module.exports = { QueryPerformanceDiagnostic };

@@ -16,7 +16,7 @@
         const { useState, useEffect } = React;
         const { createRoot } = ReactDOM;
 
-        // Simple icon components to replace Lucide
+        // Simple icon components
         const Activity = ({ className }) => <div className={`${className} flex items-center justify-center`}>📊</div>;
         const AlertTriangle = ({ className }) => <div className={`${className} flex items-center justify-center`}>⚠️</div>;
         const CheckCircle = ({ className }) => <div className={`${className} flex items-center justify-center`}>✅</div>;
@@ -28,13 +28,377 @@
         const Target = ({ className }) => <div className={`${className} flex items-center justify-center`}>🎯</div>;
         const BookOpen = ({ className }) => <div className={`${className} flex items-center justify-center`}>📖</div>;
         const Shield = ({ className }) => <div className={`${className} flex items-center justify-center`}>🛡️</div>;
+        const Code = ({ className }) => <div className={`${className} flex items-center justify-center`}>💻</div>;
+        const Settings = ({ className }) => <div className={`${className} flex items-center justify-center`}>🔧</div>;
+
+        // API Testing Tab Component
+        const APITestingTab = () => {
+          const [testType, setTestType] = useState('mcp');
+          const [toolName, setToolName] = useState('');
+          const [apiEndpoint, setApiEndpoint] = useState('');
+          const [httpMethod, setHttpMethod] = useState('GET');
+          const [testArguments, setTestArguments] = useState('{}');
+          const [isLoading, setIsLoading] = useState(false);
+          const [response, setResponse] = useState(null);
+          const [selectedTab, setSelectedTab] = useState('response');
+
+          // Predefined tests based on your MCP server capabilities
+          const predefinedTests = {
+            get_models: {
+              testType: 'mcp',
+              toolName: 'all_lookml_models',
+              arguments: '{}'
+            },
+            get_specific_model: {
+              testType: 'mcp',
+              toolName: 'looker_model',
+              arguments: '{"lookml_model_name": "looker-malloy-sources"}'
+            },
+            slow_queries: {
+              testType: 'mcp',
+              toolName: 'query',
+              arguments: JSON.stringify({
+                model: "system__activity",
+                explore: "history",
+                fields: [
+                  "query.id",
+                  "query.slug", 
+                  "history.runtime",
+                  "history.created_date",
+                  "query.model",
+                  "query.explore"
+                ],
+                filters: {
+                  "history.runtime": ">5",
+                  "history.created_date": "7 days ago for 7 days",
+                  "history.status": "complete"
+                },
+                sorts: ["history.runtime desc"],
+                limit: 10
+              }, null, 2)
+            },
+            projects: {
+              testType: 'api',
+              apiEndpoint: '/api/4.0/projects',
+              httpMethod: 'GET',
+              arguments: '{}'
+            },
+            test_connection: {
+              testType: 'mcp',
+              toolName: 'list_tools',
+              arguments: '{}'
+            }
+          };
+
+          const loadPredefinedTest = (testKey) => {
+            const test = predefinedTests[testKey];
+            if (test) {
+              setTestType(test.testType);
+              setToolName(test.toolName || '');
+              setApiEndpoint(test.apiEndpoint || '');
+              setHttpMethod(test.httpMethod || 'GET');
+              setTestArguments(test.arguments);
+            }
+          };
+
+          const executeTest = async () => {
+            setIsLoading(true);
+            setResponse(null);
+
+            const startTime = Date.now();
+
+            try {
+              let result;
+              
+              if (testType === 'mcp') {
+                result = await fetch('/api/test-mcp', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    toolName: toolName,
+                    arguments: JSON.parse(testArguments || '{}')
+                  })
+                });
+              } else {
+                result = await fetch('/api/test-api', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    endpoint: apiEndpoint,
+                    method: httpMethod,
+                    body: httpMethod !== 'GET' ? JSON.parse(testArguments || '{}') : null
+                  })
+                });
+              }
+
+              const endTime = Date.now();
+              const responseData = await result.json();
+
+              setResponse({
+                success: result.ok,
+                status: result.status,
+                data: responseData,
+                timing: {
+                  duration: endTime - startTime,
+                  status: result.status
+                },
+                request: {
+                  type: testType,
+                  toolName: toolName,
+                  endpoint: apiEndpoint,
+                  method: httpMethod,
+                  arguments: testArguments
+                }
+              });
+            } catch (error) {
+              const endTime = Date.now();
+              setResponse({
+                success: false,
+                status: 'Error',
+                data: { error: error.message },
+                timing: {
+                  duration: endTime - startTime,
+                  status: 'Failed'
+                },
+                request: {
+                  type: testType,
+                  toolName: toolName,
+                  endpoint: apiEndpoint,
+                  method: httpMethod,
+                  arguments: testArguments
+                }
+              });
+            } finally {
+              setIsLoading(false);
+            }
+          };
+
+          return (
+            <div className="space-y-6">
+              {/* Header */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-center space-x-3 mb-4">
+                  <Code className="w-6 h-6 text-blue-600" />
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-800">API Testing Dashboard</h2>
+                    <p className="text-sm text-gray-600">Test and debug your Looker API calls and MCP tools</p>
+                  </div>
+                </div>
+
+                {/* Quick Test Buttons */}
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+                  <button
+                    onClick={() => loadPredefinedTest('get_models')}
+                    className="p-3 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg text-sm text-blue-800 transition-colors"
+                  >
+                    📋 Get All Models
+                  </button>
+                  <button
+                    onClick={() => loadPredefinedTest('get_specific_model')}
+                    className="p-3 bg-green-50 hover:bg-green-100 border border-green-200 rounded-lg text-sm text-green-800 transition-colors"
+                  >
+                    🎯 Get Specific Model
+                  </button>
+                  <button
+                    onClick={() => loadPredefinedTest('slow_queries')}
+                    className="p-3 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg text-sm text-red-800 transition-colors"
+                  >
+                    🐌 Slow Queries
+                  </button>
+                  <button
+                    onClick={() => loadPredefinedTest('projects')}
+                    className="p-3 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg text-sm text-purple-800 transition-colors"
+                  >
+                    📁 Get Projects
+                  </button>
+                  <button
+                    onClick={() => loadPredefinedTest('test_connection')}
+                    className="p-3 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg text-sm text-orange-800 transition-colors"
+                  >
+                    🔧 Test Connection
+                  </button>
+                </div>
+
+                {/* Test Form */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Test Type</label>
+                    <select
+                      value={testType}
+                      onChange={(e) => setTestType(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="mcp">MCP Tool Call</option>
+                      <option value="api">Direct API Call</option>
+                    </select>
+                  </div>
+
+                  {testType === 'mcp' ? (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Tool Name</label>
+                      <input
+                        type="text"
+                        value={toolName}
+                        onChange={(e) => setToolName(e.target.value)}
+                        placeholder="e.g., looker_model, query, all_lookml_models"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">API Endpoint</label>
+                        <input
+                          type="text"
+                          value={apiEndpoint}
+                          onChange={(e) => setApiEndpoint(e.target.value)}
+                          placeholder="e.g., /api/4.0/lookml_models"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">HTTP Method</label>
+                        <select
+                          value={httpMethod}
+                          onChange={(e) => setHttpMethod(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="GET">GET</option>
+                          <option value="POST">POST</option>
+                          <option value="PUT">PUT</option>
+                          <option value="DELETE">DELETE</option>
+                        </select>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Arguments/Body (JSON)</label>
+                  <textarea
+                    value={testArguments}
+                    onChange={(e) => setTestArguments(e.target.value)}
+                    placeholder='{"lookml_model_name": "looker-malloy-sources"}'
+                    rows={6}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                  />
+                </div>
+
+                <button
+                  onClick={executeTest}
+                  disabled={isLoading}
+                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2"
+                >
+                  {isLoading ? (
+                    <>
+                      <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                      <span>Executing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4" />
+                      <span>Execute Test</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Response Section */}
+              {response && (
+                <div className="bg-white rounded-lg shadow">
+                  <div className="px-6 py-4 border-b border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-semibold text-gray-800">Test Results</h3>
+                      <div className="flex items-center space-x-2">
+                        <span
+                          className={`px-3 py-1 rounded-full text-sm font-medium ${
+                            response.success 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-red-100 text-red-800'
+                          }`}
+                        >
+                          {response.success ? '✅ Success' : '❌ Error'} - {response.status}
+                        </span>
+                        <span className="text-sm text-gray-500">
+                          {response.timing.duration}ms
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Response Tabs */}
+                  <div className="border-b border-gray-200">
+                    <nav className="flex space-x-8 px-6">
+                      {['response', 'request', 'timing'].map((tab) => (
+                        <button
+                          key={tab}
+                          onClick={() => setSelectedTab(tab)}
+                          className={`py-4 border-b-2 font-medium text-sm ${
+                            selectedTab === tab
+                              ? 'border-blue-500 text-blue-600'
+                              : 'border-transparent text-gray-500 hover:text-gray-700'
+                          }`}
+                        >
+                          {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                        </button>
+                      ))}
+                    </nav>
+                  </div>
+
+                  {/* Tab Content */}
+                  <div className="p-6">
+                    {selectedTab === 'response' && (
+                      <div className="bg-gray-50 rounded-lg p-4 max-h-96 overflow-y-auto">
+                        <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+                          {JSON.stringify(response.data, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+
+                    {selectedTab === 'request' && (
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+{`Request Type: ${response.request.type.toUpperCase()}
+${response.request.type === 'mcp' ? 'Tool Name: ' + response.request.toolName : 'Endpoint: ' + response.request.endpoint}
+${response.request.type === 'api' ? 'Method: ' + response.request.method : ''}
+Arguments/Body:
+${response.request.arguments}`}
+                        </pre>
+                      </div>
+                    )}
+
+                    {selectedTab === 'timing' && (
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-blue-600">{response.timing.duration}ms</div>
+                            <div className="text-sm text-gray-600">Total Duration</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-green-600">
+                              {response.timing.duration < 1000 ? 'Fast' : 
+                               response.timing.duration < 3000 ? 'Normal' : 'Slow'}
+                            </div>
+                            <div className="text-sm text-gray-600">Performance</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-purple-600">{response.status}</div>
+                            <div className="text-sm text-gray-600">Status</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        };
 
         const LookerHealthDashboard = () => {
           const [diagnosticResults, setDiagnosticResults] = useState(null);
           const [isRunning, setIsRunning] = useState(false);
           const [selectedTab, setSelectedTab] = useState('overview');
-          const [analysisModal, setAnalysisModal] = useState(null);
-          const [loadingAnalysis, setLoadingAnalysis] = useState(false);
           const [error, setError] = useState(null);
 
           const runDiagnostic = async () => {
@@ -53,185 +417,23 @@
               
               const data = await response.json();
               
-              // Validate the response structure
               if (!data || typeof data !== 'object') {
                 throw new Error('Invalid response structure from API');
               }
               
-              // Ensure healthMetrics exists with defaults
-              if (!data.healthMetrics) {
-                data.healthMetrics = {
-                  performance: 0,
-                  governance: 0,
-                  usage: 0,
-                  dataQuality: 0,
-                  security: 0
-                };
-              }
-
-              // Ensure other required fields exist
-              if (!data.detailedIssues) data.detailedIssues = [];
-              if (!data.issuesByType) data.issuesByType = { performance: 0, governance: 0, usage: 0, dataQuality: 0, security: 0 };
-              if (!data.aiRecommendations) data.aiRecommendations = { priorities: [], strategicRecommendations: [] };
-              if (typeof data.totalIssuesFound === 'undefined') data.totalIssuesFound = 0;
-              if (!data.overallGrade) data.overallGrade = 'F';
-              if (!data.timestamp) data.timestamp = new Date().toISOString();
-              
-              // Get the Looker base URL (remove process.env reference for browser)
-              const lookerBaseUrl = 'https://doitpartner.cloud.looker.com'; // Use your actual URL
-              
-              // Enhance the data with interactive features if AI recommendations exist
-              if (data.aiRecommendations && data.aiRecommendations.priorities) {
-                data.aiRecommendations.priorities = data.aiRecommendations.priorities.map((priority, index) => ({
-                  ...priority,
-                  // Add related dashboards from the issues
-                  relatedDashboards: data.detailedIssues
-                    ? data.detailedIssues
-                        .filter(issue => issue.type === 'performance' || issue.type === 'governance')
-                        .slice(0, 5)
-                        .map(issue => ({
-                          id: issue.dashboard ? issue.dashboard.replace(/\s+/g, '_').toLowerCase() : 'unknown',
-                          title: issue.dashboard || 'Unknown Dashboard',
-                          url: `${lookerBaseUrl}/dashboards/${issue.dashboard ? issue.dashboard.replace(/\s+/g, '_').toLowerCase() : 'unknown'}`,
-                          issue: issue.issue || 'No issue description'
-                        }))
-                    : [],
-                  // Add slow queries if this is a performance-related priority
-                  slowQueries: priority.includesQueryOptimization && data.queryAnalysis ? 
-                    data.queryAnalysis.slice(0, 3).map(q => ({
-                      id: q.queryId || 'unknown',
-                      runtime: q.runtime || 0,
-                      dashboard: q.queryId || 'unknown'
-                    })) : [],
-                  // Add LookML files for governance issues
-                  lookmlFiles: priority.title && priority.title.toLowerCase().includes('lookml') ? [
-                    { name: 'sales_metrics.view', issues: ['deprecated_field_usage', 'missing_descriptions'] },
-                    { name: 'customer_analytics.dashboard', issues: ['missing_dimension_description'] }
-                  ] : []
-                }));
-              }
-              
               setDiagnosticResults(data);
+              
             } catch (error) {
               console.error('Diagnostic failed:', error);
               setError(error.message);
-              setDiagnosticResults({
-                error: true,
-                message: error.message,
-                healthMetrics: {
-                  performance: 0,
-                  governance: 0,
-                  usage: 0,
-                  dataQuality: 0,
-                  security: 0
-                },
-                totalIssuesFound: 0,
-                overallGrade: 'F',
-                detailedIssues: [],
-                issuesByType: { performance: 0, governance: 0, usage: 0, dataQuality: 0, security: 0 },
-                aiRecommendations: {
-                  priorities: [],
-                  strategicRecommendations: []
-                },
-                timestamp: new Date().toISOString()
-              });
             } finally {
               setIsRunning(false);
             }
           };
 
-          const analyzeQueries = async (priority) => {
-            if (!priority.slowQueries || priority.slowQueries.length === 0) return;
-            
-            setLoadingAnalysis(true);
-            try {
-              // Simulate API call - replace with actual endpoint
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              
-              const mockAnalysis = {
-                queries: priority.slowQueries.map(q => ({
-                  id: q.id,
-                  runtime: q.runtime,
-                  issues: [
-                    { type: 'inefficient_select', description: 'Query uses SELECT * which fetches unnecessary columns', severity: 'medium' },
-                    { type: 'missing_indexes', description: 'Complex joins without proper indexing', severity: 'high' }
-                  ],
-                  recommendations: [
-                    { action: 'Add composite index on (customer_id, date_created)', expectedImprovement: '60-75% faster execution', effort: 'medium' },
-                    { action: 'Specify only required columns in SELECT', expectedImprovement: '20-40% faster execution', effort: 'low' }
-                  ],
-                  lookmlSuggestions: [
-                    { suggestion: 'Implement incremental PDTs', reason: 'Reduces computation time for large datasets' }
-                  ]
-                }))
-              };
-              
-              setAnalysisModal({
-                type: 'query',
-                title: `Query Analysis - ${priority.title}`,
-                content: mockAnalysis
-              });
-            } catch (error) {
-              setAnalysisModal({
-                type: 'error',
-                title: 'Analysis Failed',
-                content: { error: 'Failed to analyze queries. Please try again.' }
-              });
-            } finally {
-              setLoadingAnalysis(false);
-            }
-          };
-
-          const analyzeLookML = async (priority) => {
-            if (!priority.lookmlFiles || priority.lookmlFiles.length === 0) return;
-            
-            setLoadingAnalysis(true);
-            try {
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              
-              const mockAnalysis = {
-                files: priority.lookmlFiles.map(file => ({
-                  name: file.name,
-                  issues: file.issues,
-                  recommendations: [
-                    'Add comprehensive dimension descriptions',
-                    'Update to modern LookML syntax',
-                    'Implement proper data validation'
-                  ],
-                  bestPracticeScore: Math.floor(Math.random() * 3) + 7
-                }))
-              };
-              
-              setAnalysisModal({
-                type: 'lookml',
-                title: `LookML Analysis - ${priority.title}`,
-                content: mockAnalysis
-              });
-            } catch (error) {
-              setAnalysisModal({
-                type: 'error',
-                title: 'Analysis Failed',
-                content: { error: 'Failed to analyze LookML. Please try again.' }
-              });
-            } finally {
-              setLoadingAnalysis(false);
-            }
-          };
-
-          const getHealthColor = (score) => {
-            if (score >= 80) return 'text-green-600';
-            if (score >= 60) return 'text-yellow-600';
-            return 'text-red-600';
-          };
-
-          const getHealthBgColor = (score) => {
-            if (score >= 80) return 'bg-green-100';
-            if (score >= 60) return 'bg-yellow-100';
-            return 'bg-red-100';
-          };
-
           const getSeverityColor = (severity) => {
             switch (severity) {
+              case 'critical': return 'bg-red-100 text-red-800';
               case 'high': return 'bg-red-100 text-red-800';
               case 'medium': return 'bg-yellow-100 text-yellow-800';
               case 'low': return 'bg-blue-100 text-blue-800';
@@ -240,13 +442,13 @@
           };
 
           const HealthMetricCard = ({ title, score = 0, icon: Icon, description }) => (
-            <div className={`p-6 rounded-lg border-2 ${getHealthBgColor(score)} border-gray-200`}>
+            <div className={`p-6 rounded-lg border-2 ${score >= 80 ? 'bg-green-100' : score >= 60 ? 'bg-yellow-100' : 'bg-red-100'} border-gray-200`}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center space-x-2">
-                  <Icon className={`w-5 h-5 ${getHealthColor(score)}`} />
+                  <Icon className={`w-5 h-5 ${score >= 80 ? 'text-green-600' : score >= 60 ? 'text-yellow-600' : 'text-red-600'}`} />
                   <h3 className="font-semibold text-gray-700">{title}</h3>
                 </div>
-                <span className={`text-2xl font-bold ${getHealthColor(score)}`}>
+                <span className={`text-2xl font-bold ${score >= 80 ? 'text-green-600' : score >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>
                   {score}/100
                 </span>
               </div>
@@ -260,254 +462,357 @@
             </div>
           );
 
-          const PriorityCard = ({ priority }) => (
-            <div className="border-l-4 border-purple-500 pl-6 mb-8">
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex-1">
-                  <div className="flex items-center space-x-2 mb-2">
-                    <span className="bg-purple-100 text-purple-800 text-xs font-medium px-2 py-1 rounded-full">
-                      Priority #{priority.priority}
+          const SQLAnalysisCard = ({ analysis }) => {
+            const [showOriginalSQL, setShowOriginalSQL] = useState(false);
+            
+            return (
+              <div className="bg-white rounded-lg shadow p-6 mb-4 border-l-4 border-purple-500">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-lg font-semibold text-gray-800 flex items-center space-x-2">
+                    <Code className="w-5 h-5 text-purple-600" />
+                    <span>Query {analysis.queryId} - Analysis</span>
+                  </h4>
+                  <div className="flex items-center space-x-2">
+                    <span className="bg-red-100 text-red-800 text-sm px-3 py-1 rounded-full">
+                      {analysis.runtime}s runtime
                     </span>
+                    {analysis.overallPriority && (
+                      <span className={`text-sm px-3 py-1 rounded-full ${getSeverityColor(analysis.overallPriority)}`}>
+                        {analysis.overallPriority} priority
+                      </span>
+                    )}
                   </div>
-                  <h4 className="text-lg font-semibold text-gray-800 mb-2">{priority.title}</h4>
-                  <p className="text-gray-600 mb-3">{priority.description}</p>
                 </div>
-                
-                {/* Action Buttons */}
-                <div className="flex flex-col space-y-2 ml-4">
-                  {priority.includesQueryOptimization && priority.slowQueries && priority.slowQueries.length > 0 && (
-                    <button
-                      onClick={() => analyzeQueries(priority)}
-                      disabled={loadingAnalysis}
-                      className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded flex items-center space-x-1 disabled:opacity-50 transition-colors"
+
+                <div className="mb-6">
+                  <button
+                    onClick={() => setShowOriginalSQL(!showOriginalSQL)}
+                    className="flex items-center space-x-2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
+                  >
+                    <Database className="w-4 h-4" />
+                    <span>{showOriginalSQL ? 'Hide' : 'View'} Original SQL Query</span>
+                    <span 
+                      className="transform transition-transform duration-200"
+                      style={{ transform: showOriginalSQL ? 'rotate(180deg)' : 'rotate(0deg)' }}
                     >
-                      <span>🔍</span>
-                      <span>Query AI</span>
-                    </button>
-                  )}
+                      ▼
+                    </span>
+                  </button>
                   
-                  {priority.lookmlFiles && priority.lookmlFiles.length > 0 && (
-                    <button
-                      onClick={() => analyzeLookML(priority)}
-                      disabled={loadingAnalysis}
-                      className="bg-green-500 hover:bg-green-600 text-white text-xs px-3 py-1 rounded flex items-center space-x-1 disabled:opacity-50 transition-colors"
-                    >
-                      <span>🏗️</span>
-                      <span>LookML AI</span>
-                    </button>
-                  )}
-                  
-                  {priority.relatedDashboards && priority.relatedDashboards.length > 0 && (
-                    <div className="relative">
-                      <select 
-                        className="bg-gray-500 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded cursor-pointer transition-colors"
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            window.open(e.target.value, '_blank');
-                            e.target.value = '';
-                          }
-                        }}
-                        defaultValue=""
-                      >
-                        <option value="" disabled>📊 Dashboards</option>
-                        {priority.relatedDashboards.map(dashboard => (
-                          <option key={dashboard.id} value={dashboard.url}>
-                            {dashboard.title}
-                          </option>
-                        ))}
-                      </select>
+                  {showOriginalSQL && (
+                    <div className="mt-3 border rounded-lg overflow-hidden">
+                      <div className="bg-gray-800 text-white px-3 py-2 text-sm font-medium">
+                        Original SQL Query ({analysis.model || 'Unknown'}.{analysis.explore || 'Unknown'})
+                      </div>
+                      <div className="bg-gray-50 p-4 max-h-64 overflow-y-auto">
+                        <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+                          {analysis.sql || analysis.originalSQL || 'SQL query not available'}
+                        </pre>
+                      </div>
+                      {(analysis.dashboard || analysis.user) && (
+                        <div className="bg-blue-50 px-3 py-2 text-xs text-blue-700 border-t">
+                          {analysis.dashboard && `Dashboard: ${analysis.dashboard}`}
+                          {analysis.dashboard && analysis.user && ' | '}
+                          {analysis.user && `User: ${analysis.user}`}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              </div>
-              
-              {/* Impact/Effort/Timeline Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                <div className="bg-green-50 p-3 rounded">
-                  <span className="font-medium text-green-800">Impact:</span>
-                  <span className="ml-1 text-green-700">{priority.estimatedImpact || 'Unknown'}</span>
-                </div>
-                <div className="bg-blue-50 p-3 rounded">
-                  <span className="font-medium text-blue-800">Effort:</span>
-                  <span className="ml-1 text-blue-700">{priority.estimatedEffort || 'Unknown'}</span>
-                </div>
-                <div className="bg-orange-50 p-3 rounded">
-                  <span className="font-medium text-orange-800">Timeline:</span>
-                  <span className="ml-1 text-orange-700">{priority.timeframe || 'Unknown'}</span>
-                </div>
-              </div>
-              
-              {/* Related Items Summary */}
-              {(priority.slowQueries?.length > 0 || priority.lookmlFiles?.length > 0 || priority.relatedDashboards?.length > 0) && (
-                <div className="mt-4 p-3 bg-gray-50 rounded text-sm">
-                  <div className="flex flex-wrap gap-4">
-                    {priority.slowQueries?.length > 0 && (
-                      <span className="text-gray-600">
-                        🐌 {priority.slowQueries.length} slow queries
-                      </span>
-                    )}
-                    {priority.lookmlFiles?.length > 0 && (
-                      <span className="text-gray-600">
-                        🏗️ {priority.lookmlFiles.length} LookML files
-                      </span>
-                    )}
-                    {priority.relatedDashboards?.length > 0 && (
-                      <span className="text-gray-600">
-                        📊 {priority.relatedDashboards.length} dashboards affected
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
 
-          const AnalysisModal = () => {
-            if (!analysisModal) return null;
-
-            return (
-              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                <div className="bg-white rounded-lg max-w-4xl w-full max-h-[80vh] overflow-hidden">
-                  <div className="flex items-center justify-between p-6 border-b">
-                    <h2 className="text-xl font-semibold">{analysisModal.title}</h2>
-                    <button 
-                      onClick={() => setAnalysisModal(null)}
-                      className="text-gray-400 hover:text-gray-600 text-2xl"
-                    >
-                      ×
-                    </button>
+                {analysis.issues && analysis.issues.length > 0 && (
+                  <div className="mb-4">
+                    <h5 className="font-medium text-gray-700 mb-2">Issues Identified:</h5>
+                    <ul className="space-y-2">
+                      {analysis.issues.map((issue, i) => (
+                        <li key={i} className={`p-2 rounded ${getSeverityColor(issue.severity)}`}>
+                          <strong>{issue.type.replace(/_/g, ' ').toUpperCase()}:</strong> {issue.description}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                  
-                  <div className="p-6 overflow-y-auto max-h-[60vh]">
-                    {analysisModal.type === 'error' ? (
-                      <div className="text-red-600 text-center py-8">
-                        {analysisModal.content.error}
-                      </div>
-                    ) : analysisModal.type === 'query' ? (
-                      <QueryAnalysisContent analysis={analysisModal.content} />
-                    ) : (
-                      <LookMLAnalysisContent analysis={analysisModal.content} />
-                    )}
+                )}
+                
+                {analysis.recommendations && analysis.recommendations.length > 0 && (
+                  <div className="mb-4">
+                    <h5 className="font-medium text-gray-700 mb-2">Recommendations:</h5>
+                    <ul className="space-y-2">
+                      {analysis.recommendations.map((rec, i) => (
+                        <li key={i} className="p-2 bg-green-50 rounded border-l-4 border-green-400">
+                          <strong>{rec.type.replace(/_/g, ' ').toUpperCase()}:</strong> {rec.action}
+                          <div className="text-sm text-green-700 mt-1">
+                            Expected: {rec.expectedImprovement} | Effort: {rec.effort}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                  
-                  <div className="flex justify-end p-6 border-t space-x-3">
-                    <button 
-                      onClick={() => setAnalysisModal(null)}
-                      className="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
-                    >
-                      Close
-                    </button>
-                    <button 
-                      onClick={() => {
-                        navigator.clipboard.writeText(JSON.stringify(analysisModal.content, null, 2));
-                      }}
-                      className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                    >
-                      Copy Analysis
-                    </button>
-                  </div>
-                </div>
+                )}
               </div>
             );
           };
 
-          const QueryAnalysisContent = ({ analysis }) => (
-            <div className="space-y-6">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <h3 className="font-semibold text-blue-800 mb-2">🔍 Query Performance Analysis</h3>
-                <p className="text-blue-700">AI-powered analysis of slow-running queries with optimization recommendations.</p>
-              </div>
-              
-              {analysis.queries && analysis.queries.map((query, index) => (
-                <div key={index} className="border rounded-lg p-4">
-                  <div className="flex justify-between items-start mb-3">
-                    <h4 className="font-medium">Query: {query.id}</h4>
-                    <span className="bg-red-100 text-red-800 text-xs px-2 py-1 rounded">{query.runtime}s runtime</span>
-                  </div>
-                  <div className="space-y-3">
-                    <div>
-                      <h5 className="font-medium text-sm text-gray-700">Issues Identified:</h5>
-                      <ul className="text-sm text-gray-600 ml-4 list-disc">
-                        {query.issues.map((issue, i) => (
-                          <li key={i}>{issue.description}</li>
-                        ))}
-                      </ul>
+          // Tab content components
+          const renderTabContent = () => {
+            switch (selectedTab) {
+              case 'overview':
+                if (!diagnosticResults) return null;
+                return (
+                  <div className="space-y-8">
+                    {/* Health Metrics */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+                      <HealthMetricCard
+                        title="Performance"
+                        score={diagnosticResults.healthMetrics?.performance || 0}
+                        icon={Activity}
+                        description="Query and system performance"
+                      />
+                      <HealthMetricCard
+                        title="Governance"
+                        score={diagnosticResults.healthMetrics?.governance || 0}
+                        icon={Shield}
+                        description="Data governance and security"
+                      />
+                      <HealthMetricCard
+                        title="Usage"
+                        score={diagnosticResults.healthMetrics?.usage || 0}
+                        icon={Users}
+                        description="User adoption and engagement"
+                      />
+                      <HealthMetricCard
+                        title="Data Quality"
+                        score={diagnosticResults.healthMetrics?.dataQuality || 0}
+                        icon={Database}
+                        description="Data accuracy and consistency"
+                      />
+                      <HealthMetricCard
+                        title="Security"
+                        score={diagnosticResults.healthMetrics?.security || 0}
+                        icon={Shield}
+                        description="Access controls and compliance"
+                      />
                     </div>
-                    <div>
-                      <h5 className="font-medium text-sm text-gray-700">AI Recommendations:</h5>
-                      <ul className="text-sm text-green-700 ml-4 list-disc">
-                        {query.recommendations.map((rec, i) => (
-                          <li key={i}>{rec.action} - {rec.expectedImprovement}</li>
-                        ))}
-                      </ul>
+
+                    {/* Summary Stats */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                      <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-600">Slow Queries Found</p>
+                            <p className="text-3xl font-bold text-red-600">
+                              {diagnosticResults.slowQueryAnalysis?.totalSlowQueries || 0}
+                            </p>
+                          </div>
+                          <div className="text-4xl">🐌</div>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-2">Queries taking >5 seconds</div>
+                      </div>
+                      
+                      <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-600">AI SQL Analysis</p>
+                            <p className="text-3xl font-bold text-purple-600">
+                              {diagnosticResults.slowQueryAnalysis?.sqlQueriesAnalyzed || 0}
+                            </p>
+                          </div>
+                          <div className="text-4xl">🤖</div>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-2">With detailed optimizations</div>
+                      </div>
+
+                      <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-600">Potential Speedup</p>
+                            <p className="text-3xl font-bold text-green-600">
+                              {diagnosticResults.slowQueryAnalysis?.potentialImprovement || 'N/A'}
+                            </p>
+                          </div>
+                          <div className="text-4xl">⚡</div>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-2">Average improvement estimate</div>
+                      </div>
+
+                      <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-600">Total Issues</p>
+                            <p className="text-3xl font-bold text-orange-600">
+                              {diagnosticResults.totalIssuesFound || 0}
+                            </p>
+                          </div>
+                          <div className="text-4xl">⚠️</div>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-2">Across all categories</div>
+                      </div>
                     </div>
-                    {query.lookmlSuggestions && query.lookmlSuggestions.length > 0 && (
-                      <div className="bg-green-50 p-3 rounded text-sm">
-                        <strong>LookML Suggestions:</strong>
-                        <ul className="ml-4 list-disc">
-                          {query.lookmlSuggestions.map((suggestion, i) => (
-                            <li key={i}>{suggestion.suggestion} - {suggestion.reason}</li>
-                          ))}
-                        </ul>
+
+                    {/* Enhanced Features Status */}
+                    {diagnosticResults.enhancedFeatures && (
+                      <div className="bg-white rounded-lg shadow">
+                        <div className="px-6 py-4 border-b border-gray-200">
+                          <h3 className="text-lg font-semibold text-gray-800">Enhanced Analysis Features</h3>
+                          <p className="text-sm text-gray-600">Advanced diagnostic capabilities</p>
+                        </div>
+                        <div className="p-6">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                            <div className="text-center">
+                              <div className={`text-3xl mb-2 ${diagnosticResults.enhancedFeatures.sqlAnalysis ? 'text-green-500' : 'text-red-500'}`}>
+                                {diagnosticResults.enhancedFeatures.sqlAnalysis ? '✅' : '❌'}
+                              </div>
+                              <div className="text-sm font-medium">SQL Analysis</div>
+                              <div className="text-xs text-gray-500">Before/After Code</div>
+                            </div>
+                            <div className="text-center">
+                              <div className={`text-3xl mb-2 ${diagnosticResults.enhancedFeatures.specificRecommendations ? 'text-green-500' : 'text-red-500'}`}>
+                                {diagnosticResults.enhancedFeatures.specificRecommendations ? '✅' : '❌'}
+                              </div>
+                              <div className="text-sm font-medium">Specific Recommendations</div>
+                              <div className="text-xs text-gray-500">Actionable optimizations</div>
+                            </div>
+                            <div className="text-center">
+                              <div className={`text-3xl mb-2 ${diagnosticResults.enhancedFeatures.lookmlOptimizations ? 'text-green-500' : 'text-red-500'}`}>
+                                {diagnosticResults.enhancedFeatures.lookmlOptimizations ? '✅' : '❌'}
+                              </div>
+                              <div className="text-sm font-medium">LookML Optimization</div>
+                              <div className="text-xs text-gray-500">Aggregate tables & PDTs</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-3xl mb-2 text-green-500">✅</div>
+                              <div className="text-sm font-medium">MCP Integration</div>
+                              <div className="text-xs text-gray-500">Real-time data access</div>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
-                </div>
-              ))}
-            </div>
-          );
+                );
 
-          const LookMLAnalysisContent = ({ analysis }) => (
-            <div className="space-y-6">
-              <div className="bg-green-50 p-4 rounded-lg">
-                <h3 className="font-semibold text-green-800 mb-2">🏗️ LookML Code Analysis</h3>
-                <p className="text-green-700">AI-powered analysis of LookML files with best practice recommendations.</p>
-              </div>
-              
-              {analysis.files && analysis.files.map((file, index) => (
-                <div key={index} className="border rounded-lg p-4">
-                  <div className="flex justify-between items-start mb-3">
-                    <h4 className="font-medium">{file.name}</h4>
-                    <span className="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded">{file.issues.length} issues</span>
+              case 'query-analysis':
+                if (!diagnosticResults) return <div className="text-center py-8 text-gray-500">No analysis data available</div>;
+                return (
+                  <div className="space-y-6">
+                    {diagnosticResults.queryAnalysis && diagnosticResults.queryAnalysis.length > 0 ? (
+                      <div className="bg-white rounded-lg shadow">
+                        <div className="px-6 py-4 border-b border-gray-200">
+                          <h3 className="text-lg font-semibold text-gray-800">SQL Query Analysis</h3>
+                          <p className="text-sm text-gray-600">Detailed analysis of slow queries</p>
+                        </div>
+                        <div className="p-6">
+                          {diagnosticResults.queryAnalysis.map((analysis, index) => (
+                            <SQLAnalysisCard key={index} analysis={analysis} />
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        No query analysis available. Run a diagnostic to analyze queries.
+                      </div>
+                    )}
                   </div>
-                  <div className="space-y-3">
-                    <div>
-                      <h5 className="font-medium text-sm text-gray-700">Issues Found:</h5>
-                      <ul className="text-sm text-gray-600 ml-4 list-disc">
-                        {file.issues.map((issue, i) => (
-                          <li key={i}>{issue.replace(/_/g, ' ')}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div>
-                      <h5 className="font-medium text-sm text-gray-700">Recommended Fixes:</h5>
-                      <ul className="text-sm text-blue-700 ml-4 list-disc">
-                        {file.recommendations.map((rec, i) => (
-                          <li key={i}>{rec}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="bg-blue-50 p-3 rounded text-sm">
-                      <strong>Best Practice Score:</strong> {file.bestPracticeScore}/10
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          );
+                );
 
-          // Error state
+              case 'issues':
+                if (!diagnosticResults || !diagnosticResults.detailedIssues) {
+                  return <div className="text-center py-8 text-gray-500">No issues data available</div>;
+                }
+                return (
+                  <div className="bg-white rounded-lg shadow">
+                    <div className="px-6 py-4 border-b border-gray-200">
+                      <h3 className="text-lg font-semibold text-gray-800">All Issues ({diagnosticResults.totalIssuesFound || 0})</h3>
+                    </div>
+                    <div className="divide-y divide-gray-200">
+                      {diagnosticResults.detailedIssues.length > 0 ? diagnosticResults.detailedIssues.map((issue, index) => (
+                        <div key={index} className="p-6">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-3 mb-2">
+                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(issue.severity)}`}>
+                                  {(issue.severity || 'unknown').toUpperCase()}
+                                </span>
+                                <span className="text-xs text-gray-500 uppercase tracking-wide">{issue.type || 'general'}</span>
+                              </div>
+                              <h4 className="font-medium text-gray-900 mb-1">{issue.dashboard || issue.item || 'Unknown'}</h4>
+                              <p className="text-sm text-gray-600 mb-2">{issue.issue || 'No description available'}</p>
+                              <div className="bg-blue-50 p-3 rounded-md">
+                                <p className="text-sm text-blue-800">
+                                  <strong>Recommendation:</strong> {issue.recommendation || 'No recommendation available'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )) : (
+                        <div className="p-6 text-center text-gray-500">No issues found</div>
+                      )}
+                    </div>
+                  </div>
+                );
+
+              case 'recommendations':
+                if (!diagnosticResults || !diagnosticResults.aiRecommendations) {
+                  return <div className="text-center py-8 text-gray-500">No recommendations available</div>;
+                }
+                return (
+                  <div className="space-y-8">
+                    <div className="bg-white rounded-lg shadow">
+                      <div className="px-6 py-4 border-b border-gray-200">
+                        <h3 className="text-lg font-semibold text-gray-800">Priority Actions</h3>
+                      </div>
+                      <div className="p-6 space-y-6">
+                        {diagnosticResults.aiRecommendations.priorities && diagnosticResults.aiRecommendations.priorities.length > 0 ? 
+                          diagnosticResults.aiRecommendations.priorities.map((priority, index) => (
+                            <div key={index} className="border-l-4 border-purple-500 pl-6">
+                              <div className="flex items-center space-x-2 mb-2">
+                                <span className="bg-purple-100 text-purple-800 text-xs font-medium px-2 py-1 rounded-full">
+                                  Priority #{priority.priority}
+                                </span>
+                              </div>
+                              <h4 className="text-lg font-semibold text-gray-800 mb-2">{priority.title}</h4>
+                              <p className="text-gray-600 mb-3">{priority.description}</p>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                                <div className="bg-green-50 p-3 rounded">
+                                  <span className="font-medium text-green-800">Impact:</span>
+                                  <span className="ml-1 text-green-700">{priority.estimatedImpact || 'Unknown'}</span>
+                                </div>
+                                <div className="bg-blue-50 p-3 rounded">
+                                  <span className="font-medium text-blue-800">Effort:</span>
+                                  <span className="ml-1 text-blue-700">{priority.estimatedEffort || 'Unknown'}</span>
+                                </div>
+                                <div className="bg-orange-50 p-3 rounded">
+                                  <span className="font-medium text-orange-800">Timeline:</span>
+                                  <span className="ml-1 text-orange-700">{priority.timeframe || 'Unknown'}</span>
+                                </div>
+                              </div>
+                            </div>
+                          )) : (
+                            <div className="text-center text-gray-500 py-8">
+                              No recommendations available. Run a diagnostic to generate recommendations.
+                            </div>
+                          )
+                        }
+                      </div>
+                    </div>
+                  </div>
+                );
+
+              case 'api-testing':
+                return <APITestingTab />;
+
+              default:
+                return <div className="text-center py-8 text-gray-500">Tab content coming soon...</div>;
+            }
+          };
+
           if (error && !diagnosticResults) {
             return (
               <div className="min-h-screen bg-gray-50 flex items-center justify-center">
                 <div className="text-center max-w-md">
                   <AlertTriangle className="w-20 h-20 text-red-500 mx-auto mb-6" />
-                  <h1 className="text-2xl font-bold text-gray-800 mb-4">
-                    Diagnostic Failed
-                  </h1>
-                  <p className="text-gray-600 mb-6">
-                    {error}
-                  </p>
+                  <h1 className="text-2xl font-bold text-gray-800 mb-4">Diagnostic Failed</h1>
+                  <p className="text-gray-600 mb-6">{error}</p>
                   <button
                     onClick={runDiagnostic}
                     className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold"
@@ -526,14 +831,8 @@
                   <div className="animate-pulse">
                     <Activity className="w-16 h-16 text-blue-500 mx-auto mb-4" />
                   </div>
-                  <h2 className="text-2xl font-bold text-gray-800 mb-2">Running Health Diagnostic</h2>
-                  <p className="text-gray-600 mb-4">Analyzing your Looker instance via MCP connection...</p>
-                  <div className="space-y-2">
-                    <div className="bg-blue-100 p-2 rounded text-sm">🔌 Connecting to Looker MCP Server...</div>
-                    <div className="bg-blue-100 p-2 rounded text-sm">📊 Fetching dashboard metadata...</div>
-                    <div className="bg-blue-100 p-2 rounded text-sm">🤖 Running AI analysis with Gemini...</div>
-                    <div className="bg-blue-100 p-2 rounded text-sm">📋 Generating recommendations...</div>
-                  </div>
+                  <h2 className="text-2xl font-bold text-gray-800 mb-2">Running Diagnostic</h2>
+                  <p className="text-gray-600">Analyzing your Looker instance...</p>
                 </div>
               </div>
             );
@@ -544,25 +843,14 @@
               <div className="min-h-screen bg-gray-50 flex items-center justify-center">
                 <div className="text-center max-w-md">
                   <Activity className="w-20 h-20 text-blue-500 mx-auto mb-6" />
-                  <h1 className="text-3xl font-bold text-gray-800 mb-4">
-                    Looker Health Diagnostic Assistant
-                  </h1>
-                  <p className="text-gray-600 mb-6">
-                    AI-powered analysis of your Looker dashboards using MCP integration. 
-                    Get insights on performance, governance, usage patterns, and data quality.
-                  </p>
+                  <h1 className="text-3xl font-bold text-gray-800 mb-4">Looker Health Diagnostic</h1>
+                  <p className="text-gray-600 mb-6">Comprehensive analysis with API testing capabilities</p>
                   <button
                     onClick={runDiagnostic}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold flex items-center mx-auto space-x-2"
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold"
                   >
-                    <Zap className="w-5 h-5" />
-                    <span>Run Health Diagnostic</span>
+                    Run Diagnostic
                   </button>
-                  <div className="mt-6 text-sm text-gray-500">
-                    <p>✅ MCP Toolbox Integration</p>
-                    <p>✅ AI-Powered Recommendations</p>
-                    <p>✅ Comprehensive Health Scoring</p>
-                  </div>
                 </div>
               </div>
             );
@@ -583,22 +871,12 @@
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center space-x-4">
-                      <div className={`px-4 py-2 rounded-full text-lg font-bold ${
-                        diagnosticResults.overallGrade === 'A' ? 'bg-green-100 text-green-800' :
-                        diagnosticResults.overallGrade === 'B' ? 'bg-blue-100 text-blue-800' :
-                        diagnosticResults.overallGrade === 'C' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
-                        Grade: {diagnosticResults.overallGrade || 'N/A'}
-                      </div>
-                      <button
-                        onClick={runDiagnostic}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
-                      >
-                        Re-run Diagnostic
-                      </button>
-                    </div>
+                    <button
+                      onClick={runDiagnostic}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                    >
+                      Re-run Analysis
+                    </button>
                   </div>
                 </div>
               </div>
@@ -609,8 +887,10 @@
                   <nav className="flex space-x-8">
                     {[
                       { id: 'overview', label: 'Overview', icon: Activity },
+                      { id: 'query-analysis', label: 'SQL Analysis', icon: Code },
                       { id: 'issues', label: 'Issues', icon: AlertTriangle },
-                      { id: 'recommendations', label: 'AI Recommendations', icon: Target }
+                      { id: 'recommendations', label: 'Recommendations', icon: Target },
+                      { id: 'api-testing', label: 'API Testing', icon: Settings }
                     ].map(({ id, label, icon: Icon }) => (
                       <button
                         key={id}
@@ -630,262 +910,15 @@
               </div>
 
               <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                {selectedTab === 'overview' && diagnosticResults && diagnosticResults.healthMetrics && (
-                  <div className="space-y-8">
-                    {/* Health Metrics Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-                      <HealthMetricCard
-                        title="Performance"
-                        score={diagnosticResults.healthMetrics.performance || 0}
-                        icon={Zap}
-                        description="Dashboard load times and query performance"
-                      />
-                      <HealthMetricCard
-                        title="Governance"
-                        score={diagnosticResults.healthMetrics.governance || 0}
-                        icon={BookOpen}
-                        description="Documentation and best practices compliance"
-                      />
-                      <HealthMetricCard
-                        title="Usage"
-                        score={diagnosticResults.healthMetrics.usage || 0}
-                        icon={Users}
-                        description="User engagement and adoption metrics"
-                      />
-                      <HealthMetricCard
-                        title="Data Quality"
-                        score={diagnosticResults.healthMetrics.dataQuality || 0}
-                        icon={Database}
-                        description="Data freshness and consistency indicators"
-                      />
-                      <HealthMetricCard
-                        title="Security"
-                        score={diagnosticResults.healthMetrics.security || 0}
-                        icon={Shield}
-                        description="Access controls and security compliance"
-                      />
-                    </div>
-
-                    {/* Summary Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                      <div className="bg-white p-6 rounded-lg shadow">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-600">Total Issues</p>
-                            <p className="text-3xl font-bold text-gray-900">{diagnosticResults.totalIssuesFound || 0}</p>
-                          </div>
-                          <AlertTriangle className="w-8 h-8 text-orange-500" />
-                        </div>
-                      </div>
-                      
-                      <div className="bg-white p-6 rounded-lg shadow">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-600">High Priority</p>
-                            <p className="text-3xl font-bold text-red-600">
-                              {diagnosticResults.detailedIssues ? diagnosticResults.detailedIssues.filter(i => i.severity === 'high').length : 0}
-                            </p>
-                          </div>
-                          <AlertTriangle className="w-8 h-8 text-red-500" />
-                        </div>
-                      </div>
-
-                      <div className="bg-white p-6 rounded-lg shadow">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-600">Performance Issues</p>
-                            <p className="text-3xl font-bold text-yellow-600">{diagnosticResults.issuesByType?.performance || 0}</p>
-                          </div>
-                          <Zap className="w-8 h-8 text-yellow-500" />
-                        </div>
-                      </div>
-
-                      <div className="bg-white p-6 rounded-lg shadow">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-600">Governance Issues</p>
-                            <p className="text-3xl font-bold text-blue-600">{diagnosticResults.issuesByType?.governance || 0}</p>
-                          </div>
-                          <BookOpen className="w-8 h-8 text-blue-500" />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Key Insights */}
-                    <div className="bg-white rounded-lg shadow">
-                      <div className="px-6 py-4 border-b border-gray-200">
-                        <h3 className="text-lg font-semibold text-gray-800">Key Insights</h3>
-                      </div>
-                      <div className="p-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div className="space-y-4">
-                            <h4 className="font-medium text-gray-700">Strengths</h4>
-                            {Object.entries(diagnosticResults.healthMetrics || {})
-                              .filter(([_, score]) => score >= 80)
-                              .map(([metric, score]) => (
-                                <div key={metric} className="flex items-center space-x-2">
-                                  <CheckCircle className="w-4 h-4 text-green-500" />
-                                  <span className="text-sm text-gray-600 capitalize">
-                                    {metric} performing well ({score}/100)
-                                  </span>
-                                </div>
-                              ))}
-                            {Object.entries(diagnosticResults.healthMetrics || {}).filter(([_, score]) => score >= 80).length === 0 && (
-                              <div className="text-sm text-gray-500">No areas currently performing at excellent levels</div>
-                            )}
-                          </div>
-                          <div className="space-y-4">
-                            <h4 className="font-medium text-gray-700">Areas for Improvement</h4>
-                            {Object.entries(diagnosticResults.healthMetrics || {})
-                              .filter(([_, score]) => score < 70)
-                              .map(([metric, score]) => (
-                                <div key={metric} className="flex items-center space-x-2">
-                                  <AlertTriangle className="w-4 h-4 text-orange-500" />
-                                  <span className="text-sm text-gray-600 capitalize">
-                                    {metric} needs attention ({score}/100)
-                                  </span>
-                                </div>
-                              ))}
-                            {Object.entries(diagnosticResults.healthMetrics || {}).filter(([_, score]) => score < 70).length === 0 && (
-                              <div className="text-sm text-gray-500">All areas performing at acceptable levels</div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {selectedTab === 'issues' && diagnosticResults && diagnosticResults.detailedIssues && (
-                  <div className="space-y-6">
-                    <div className="bg-white rounded-lg shadow">
-                      <div className="px-6 py-4 border-b border-gray-200">
-                        <h3 className="text-lg font-semibold text-gray-800">All Issues ({diagnosticResults.totalIssuesFound || 0})</h3>
-                      </div>
-                      <div className="divide-y divide-gray-200">
-                        {diagnosticResults.detailedIssues.length > 0 ? diagnosticResults.detailedIssues.map((issue, index) => (
-                          <div key={index} className="p-6">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center space-x-3 mb-2">
-                                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(issue.severity)}`}>
-                                    {(issue.severity || 'unknown').toUpperCase()}
-                                  </span>
-                                  <span className="text-xs text-gray-500 uppercase tracking-wide">{issue.type || 'general'}</span>
-                                </div>
-                                <h4 className="font-medium text-gray-900 mb-1">{issue.dashboard || 'Unknown Dashboard'}</h4>
-                                <p className="text-sm text-gray-600 mb-2">{issue.issue || 'No description available'}</p>
-                                <div className="bg-blue-50 p-3 rounded-md">
-                                  <p className="text-sm text-blue-800">
-                                    <strong>💡 Recommendation:</strong> {issue.recommendation || 'No recommendation available'}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )) : (
-                          <div className="p-6 text-center text-gray-500">
-                            No issues found or diagnostic not yet run.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {selectedTab === 'recommendations' && diagnosticResults && diagnosticResults.aiRecommendations && (
-                  <div className="space-y-8">
-                    <div className="bg-white rounded-lg shadow">
-                      <div className="px-6 py-4 border-b border-gray-200">
-                        <h3 className="text-lg font-semibold text-gray-800 flex items-center space-x-2">
-                          <Target className="w-5 h-5 text-purple-500" />
-                          <span>Priority Actions (AI Generated)</span>
-                        </h3>
-                        <p className="text-sm text-gray-600 mt-1">
-                          Click action buttons to analyze queries or LookML with AI, or select dashboards to view in Looker.
-                        </p>
-                      </div>
-                      <div className="p-6 space-y-6">
-                        {diagnosticResults.aiRecommendations.priorities && diagnosticResults.aiRecommendations.priorities.length > 0 ? 
-                          diagnosticResults.aiRecommendations.priorities.map((priority, index) => (
-                            <PriorityCard key={index} priority={priority} />
-                          )) : (
-                            <div className="text-center text-gray-500 py-8">
-                              No AI recommendations available. Run a diagnostic to generate recommendations.
-                            </div>
-                          )
-                        }
-                      </div>
-                    </div>
-
-                    <div className="bg-white rounded-lg shadow">
-                      <div className="px-6 py-4 border-b border-gray-200">
-                        <h3 className="text-lg font-semibold text-gray-800 flex items-center space-x-2">
-                          <TrendingUp className="w-5 h-5 text-green-500" />
-                          <span>Strategic Recommendations</span>
-                        </h3>
-                      </div>
-                      <div className="p-6 space-y-6">
-                        {diagnosticResults.aiRecommendations.strategicRecommendations && diagnosticResults.aiRecommendations.strategicRecommendations.length > 0 ? 
-                          diagnosticResults.aiRecommendations.strategicRecommendations.map((rec, index) => (
-                            <div key={index} className="bg-gradient-to-r from-green-50 to-blue-50 p-6 rounded-lg">
-                              <div className="flex items-start space-x-4">
-                                <div className="bg-green-100 p-2 rounded-full">
-                                  <TrendingUp className="w-5 h-5 text-green-600" />
-                                </div>
-                                <div className="flex-1">
-                                  <div className="flex items-center space-x-2 mb-2">
-                                    <span className="bg-green-100 text-green-800 text-xs font-medium px-2 py-1 rounded-full">
-                                      {rec.category || 'General'}
-                                    </span>
-                                  </div>
-                                  <h4 className="font-semibold text-gray-800 mb-2">{rec.recommendation || 'No recommendation'}</h4>
-                                  <p className="text-gray-600 mb-3">{rec.rationale || 'No rationale provided'}</p>
-                                  <div className="bg-white p-3 rounded border-l-4 border-green-400">
-                                    <p className="text-sm text-gray-700">
-                                      <strong>Expected Outcome:</strong> {rec.expectedOutcome || 'Outcome not specified'}
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          )) : (
-                            <div className="text-center text-gray-500 py-8">
-                              No strategic recommendations available. Run a diagnostic to generate recommendations.
-                            </div>
-                          )
-                        }
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {renderTabContent()}
               </div>
-
-              {/* Loading Overlay */}
-              {loadingAnalysis && (
-                <div className="fixed inset-0 bg-black bg-opacity-25 flex items-center justify-center z-40">
-                  <div className="bg-white p-6 rounded-lg shadow-lg flex items-center space-x-3">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-                    <span>Running AI Analysis...</span>
-                  </div>
-                </div>
-              )}
-
-              <AnalysisModal />
 
               {/* Footer */}
               <div className="bg-white border-t mt-12">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                   <div className="flex items-center justify-between text-sm text-gray-600">
-                    <div className="flex items-center space-x-4">
-                      <span>🤖 Powered by Looker MCP Server & Gemini AI</span>
-                      <span>•</span>
-                      <span>Built for Looker Hackathon 2025</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Clock className="w-4 h-4" />
-                      <span>Next scan recommended: {new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString()}</span>
-                    </div>
+                    <span>Enhanced with Looker MCP Server & API Testing</span>
+                    <span>Built for Looker Hackathon 2025</span>
                   </div>
                 </div>
               </div>
@@ -893,7 +926,6 @@
           );
         };
 
-        // Use React 18 createRoot API
         const root = createRoot(document.getElementById('root'));
         root.render(<LookerHealthDashboard />);
     </script>
