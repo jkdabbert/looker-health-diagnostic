@@ -226,96 +226,104 @@ class QueryPerformanceDiagnostic {
     }
 
     async fetchSlowQueries() {
-        console.log('Fetching slow queries...');
+        console.log('🔍 Fetching slow queries with smart explore grouping...');
         const startTime = Date.now();
         
         try {
-            let queries = [];
+            let queryResult = null;
             
             if (this.mcpConnector.isConnected) {
-                console.log('Strategy 1: Searching for queries > 5s in last 30 days...');
-                queries = await this.mcpConnector.executeQuery({
-                    model: "system__activity",
-                    explore: "history", 
-                    fields: [
-                        "query.id", "query.slug", "history.runtime", "history.created_date",
-                        "query.model", "query.explore", "dashboard.title", "user.email"
-                    ],
-                    filters: {
-                        "history.runtime": ">5",
-                        "history.created_date": "30 days ago for 30 days",
-                        "history.status": "complete"
-                    },
-                    sorts: ["history.runtime desc"],
-                    limit: 50
-                });
+                console.log('📊 Using MCP to fetch top slow queries per explore...');
                 
-                console.log(`Strategy 1 found: ${queries.length} queries`);
-                
-                if (queries.length < 10) {
-                    console.log('Strategy 2: Expanding to 60 days...');
-                    const moreQueries = await this.mcpConnector.executeQuery({
-                        model: "system__activity",
-                        explore: "history",
-                        fields: [
-                            "query.id", "query.slug", "history.runtime", "history.created_date",
-                            "query.model", "query.explore", "dashboard.title", "user.email"
-                        ],
-                        filters: {
-                            "history.runtime": ">5",
-                            "history.created_date": "60 days ago for 60 days",
-                            "history.status": "complete"
-                        },
-                        sorts: ["history.runtime desc"],
-                        limit: 50
-                    });
-                    queries = queries.concat(moreQueries);
-                    console.log(`Strategy 2 added: ${moreQueries.length} more queries (total: ${queries.length})`);
-                }
-                
-                if (queries.length < 5) {
-                    console.log('Strategy 3: Lowering threshold to 1 second...');
-                    const fastQueries = await this.mcpConnector.executeQuery({
-                        model: "system__activity", 
-                        explore: "history",
-                        fields: [
-                            "query.id", "query.slug", "history.runtime", "history.created_date",
-                            "query.model", "query.explore", "dashboard.title", "user.email"
-                        ],
-                        filters: {
-                            "history.runtime": ">1",
-                            "history.created_date": "30 days ago for 30 days",
-                            "history.status": "complete"
-                        },
-                        sorts: ["history.runtime desc"],
-                        limit: 25
-                    });
-                    queries = queries.concat(fastQueries);
-                    console.log(`Strategy 3 added: ${fastQueries.length} more queries (total: ${queries.length})`);
-                }
-                
-                const uniqueQueries = queries.filter((query, index, self) => 
-                    index === self.findIndex(q => (q.query_id || q['query.id']) === (query.query_id || query['query.id']))
+                // Use the new grouped query fetching
+                queryResult = await this.mcpConnector.getSlowQueriesGroupedByExplore(
+                    '30 days ago for 30 days',  // Time range
+                    5,                           // Runtime threshold (>5s)
+                    5,                           // Max 5 queries per explore
+                    20                           // Max 20 explores to analyze
                 );
                 
-                console.log(`Final result: ${uniqueQueries.length} unique slow queries via MCP`);
-                queries = uniqueQueries;
+                if (!queryResult.queries || queryResult.queries.length === 0) {
+                    console.log('⚠️ No queries found with >5s threshold, trying adaptive search...');
+                    
+                    // Try adaptive search with lower thresholds
+                    const adaptiveQueries = await this.mcpConnector.getSlowQueriesAdaptive(
+                        '30 days ago for 30 days',
+                        50,  // Target 50 total queries
+                        5    // Max 5 per explore
+                    );
+                    
+                    queryResult = {
+                        queries: adaptiveQueries,
+                        summary: {
+                            totalQueries: adaptiveQueries.length,
+                            method: 'adaptive'
+                        }
+                    };
+                }
+                
+                console.log(`\n✅ Query fetching complete:`);
+                console.log(`   - Total queries: ${queryResult.queries.length}`);
+                console.log(`   - Unique explores: ${queryResult.summary?.uniqueExplores || 'Unknown'}`);
+                console.log(`   - Average runtime: ${queryResult.summary?.averageRuntime?.toFixed(1) || 'Unknown'}s`);
+                
+                // Display explore breakdown if available
+                if (queryResult.summary?.exploreBreakdown) {
+                    console.log(`\n📈 Queries by explore:`);
+                    queryResult.summary.exploreBreakdown
+                        .sort((a, b) => b.queryCount - a.queryCount)
+                        .slice(0, 10)
+                        .forEach((explore, index) => {
+                            console.log(`   ${index + 1}. ${explore.explore}: ${explore.queryCount} queries`);
+                        });
+                }
                 
             } else {
-                console.log('MCP not available for slow queries - using enhanced mock data');
-                queries = this.generateEnhancedMockSlowQueries();
+                console.log('MCP not available - using enhanced mock slow queries');
+                queryResult = {
+                    queries: this.generateEnhancedMockSlowQueries(),
+                    summary: {
+                        totalQueries: 10,
+                        method: 'mock'
+                    }
+                };
             }
             
-            const enhancedQueries = queries.map(query => {
+            // Enhance queries with additional metadata
+            const enhancedQueries = queryResult.queries.map(query => {
                 const runtime = parseFloat(query.runtime_seconds || query['history.runtime'] || 0);
+                const model = query.model || query['query.model'];
+                const explore = query.explore || query['query.explore'];
+                
                 return {
                     ...query,
                     runtime_seconds: runtime,
                     runtimeCategory: this.categorizeRuntime(runtime),
                     complexityEstimate: this.estimateQueryComplexity(query),
-                    optimizationPriority: this.calculateOptimizationPriority(query)
+                    optimizationPriority: this.calculateOptimizationPriority(query),
+                    exploreKey: query.exploreKey || `${model}.${explore}`,
+                    // Add performance indicators
+                    performanceIndicators: {
+                        isCritical: runtime > 120,
+                        isHigh: runtime > 60 && runtime <= 120,
+                        isMedium: runtime > 30 && runtime <= 60,
+                        needsPDT: runtime > 60,
+                        needsIndexing: runtime > 30
+                    }
                 };
             });
+            
+            // Sort by runtime (highest first) but keep explore grouping visible
+            enhancedQueries.sort((a, b) => b.runtime_seconds - a.runtime_seconds);
+            
+            // Log summary statistics
+            const criticalQueries = enhancedQueries.filter(q => q.performanceIndicators.isCritical);
+            const highQueries = enhancedQueries.filter(q => q.performanceIndicators.isHigh);
+            
+            console.log(`\n🎯 Performance summary:`);
+            console.log(`   - Critical (>120s): ${criticalQueries.length} queries`);
+            console.log(`   - High (60-120s): ${highQueries.length} queries`);
+            console.log(`   - PDT candidates: ${enhancedQueries.filter(q => q.performanceIndicators.needsPDT).length}`);
             
             this.processingStats.queriesAnalyzed = enhancedQueries.length;
             return enhancedQueries;
@@ -328,8 +336,58 @@ class QueryPerformanceDiagnostic {
             return mockQueries;
         } finally {
             const fetchTime = Date.now() - startTime;
-            console.log(`Slow query fetching completed in ${fetchTime}ms`);
+            console.log(`\n⏱️ Slow query fetching completed in ${fetchTime}ms`);
         }
+    }
+    
+    // Helper method to generate better mock data with explore diversity
+    generateEnhancedMockSlowQueries() {
+        const mockExplores = [
+            { model: 'sales', explore: 'orders', avgRuntime: 45 },
+            { model: 'sales', explore: 'order_items', avgRuntime: 38 },
+            { model: 'customer', explore: 'customers', avgRuntime: 62 },
+            { model: 'customer', explore: 'customer_lifetime_value', avgRuntime: 125 },
+            { model: 'marketing', explore: 'campaigns', avgRuntime: 28 },
+            { model: 'marketing', explore: 'attribution', avgRuntime: 85 },
+            { model: 'product', explore: 'products', avgRuntime: 15 },
+            { model: 'product', explore: 'inventory', avgRuntime: 42 },
+            { model: 'finance', explore: 'transactions', avgRuntime: 95 },
+            { model: 'finance', explore: 'revenue', avgRuntime: 110 }
+        ];
+        
+        const mockQueries = [];
+        
+        // Generate 2-3 queries per explore
+        mockExplores.forEach((exploreInfo, exploreIndex) => {
+            const queriesForExplore = Math.floor(Math.random() * 2) + 2; // 2-3 queries
+            
+            for (let i = 0; i < queriesForExplore; i++) {
+                const baseRuntime = exploreInfo.avgRuntime;
+                const variance = (Math.random() - 0.5) * 40; // +/- 20 seconds variance
+                const runtime = Math.max(5, baseRuntime + variance);
+                
+                mockQueries.push({
+                    query_id: `mock_${exploreIndex}_${i}`,
+                    slug: `${exploreInfo.explore}_query_${i}`,
+                    runtime_seconds: runtime,
+                    created_date: new Date(Date.now() - Math.random() * 30 * 86400000).toISOString(),
+                    model: exploreInfo.model,
+                    explore: exploreInfo.explore,
+                    exploreKey: `${exploreInfo.model}.${exploreInfo.explore}`,
+                    dashboard_title: `${exploreInfo.model} Dashboard`,
+                    user_email: `analyst${Math.floor(Math.random() * 5) + 1}@company.com`,
+                    exploreQueryCount: queriesForExplore,
+                    exploreAvgRuntime: exploreInfo.avgRuntime
+                });
+            }
+        });
+        
+        // Sort by runtime descending
+        mockQueries.sort((a, b) => b.runtime_seconds - a.runtime_seconds);
+        
+        console.log(`Generated ${mockQueries.length} mock queries across ${mockExplores.length} explores`);
+        
+        return mockQueries;
     }
 
     async fetchLookMLFiles() {
@@ -389,6 +447,7 @@ class QueryPerformanceDiagnostic {
                 this.withTimeout(this.fetchSlowQueries(), 45000, 'slow query fetching'),
                 this.withTimeout(this.fetchLookMLFiles(), 90000, 'LookML file fetching')
             ];
+
             
             const dataResults = await Promise.allSettled(dataFetchPromises);
             
@@ -432,7 +491,9 @@ class QueryPerformanceDiagnostic {
                 this.actualQueries, 
                 this.mcpConnector,
                 this.lookerApiConnector);
-            const lookmlResults = this.extractPromiseResult(analysisResults[1], { analyses: [] });
+
+                console.log('Step 2b: Fetching and analyzing LookML...');
+            const lookmlResults = await this.fetchAndAnalyzeLookML();
             const performanceResults = this.extractPromiseResult(analysisResults[2], { analyses: [], summary: {} });
             const bigqueryResults = this.extractPromiseResult(analysisResults[3], { analyzed: false });
             
@@ -478,6 +539,405 @@ class QueryPerformanceDiagnostic {
             };
         }
     }
+
+
+    async callGeminiAPI(prompt) {
+        const axios = require('axios');
+        
+        if (!this.geminiApiKey) {
+            throw new Error('Gemini API key not configured');
+        }
+        
+        console.log(`      🔑 Using Gemini API Key: ${this.geminiApiKey.substring(0, 10)}...`);
+        
+        try {
+            // FIXED: Use gemini-2.0-flash-exp for best performance
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${this.geminiApiKey}`;
+            
+            console.log('      📡 Calling Gemini 2.0 API...');
+            
+            const response = await axios.post(
+                apiUrl,
+                {
+                    contents: [{
+                        parts: [{
+                            text: prompt
+                        }]
+                    }],
+                    generationConfig: {
+                        temperature: 0.2,
+                        maxOutputTokens: 2048,
+                        topK: 1,
+                        topP: 0.8
+                    }
+                },
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-goog-api-key': this.geminiApiKey  // Note: Using header format as shown in curl
+                    },
+                    timeout: 30000,
+                    validateStatus: function (status) {
+                        console.log(`      📊 Gemini API Response Status: ${status}`);
+                        return status >= 200 && status < 300;
+                    }
+                }
+            );
+    
+            if (!response.data.candidates || response.data.candidates.length === 0) {
+                throw new Error('No response from Gemini API');
+            }
+    
+            console.log('      ✅ Gemini 2.0 API call successful');
+            return response.data.candidates[0].content.parts[0].text;
+            
+        } catch (error) {
+            if (error.response) {
+                console.error('      ❌ Gemini API Error:', {
+                    status: error.response.status,
+                    statusText: error.response.statusText,
+                    data: error.response.data?.error?.message || error.response.data
+                });
+                
+                if (error.response.status === 404) {
+                    // Try fallback to older model
+                    console.log('      🔄 Trying fallback to gemini-1.5-flash...');
+                    return this.callGeminiAPIFallback(prompt);
+                } else if (error.response.status === 403) {
+                    throw new Error('Gemini API key invalid or unauthorized');
+                } else if (error.response.status === 429) {
+                    throw new Error('Gemini API rate limit exceeded');
+                }
+            }
+            
+            throw error;
+        }
+    }
+    
+    async callGeminiAPIFallback(prompt) {
+        const axios = require('axios');
+        
+        try {
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.geminiApiKey}`;
+            
+            const response = await axios.post(
+                apiUrl,
+                {
+                    contents: [{
+                        parts: [{ text: prompt }]
+                    }],
+                    generationConfig: {
+                        temperature: 0.2,
+                        maxOutputTokens: 2048
+                    }
+                },
+                {
+                    headers: { 'Content-Type': 'application/json' },
+                    timeout: 30000
+                }
+            );
+    
+            return response.data.candidates[0].content.parts[0].text;
+        } catch (error) {
+            console.error('      ❌ Fallback API also failed:', error.message);
+            throw error;
+        }
+    }
+
+
+async fetchAndAnalyzeLookML() {
+    console.log('📝 Starting LookML analysis for optimization recommendations...');
+    
+    try {
+        let lookmlFiles = [];
+        let lookmlAnalysis = null;
+        
+        // Strategy 1: Try to fetch via Looker API
+        if (this.lookerApiConnector && this.lookerApiConnector.getStatus().connected) {
+            console.log('   Strategy 1: Fetching LookML via Looker API...');
+            
+            try {
+                // Get models first
+                const models = await this.lookerApiConnector.getAllModels();
+                console.log(`   Found ${models.length} models`);
+                
+                // For each model with slow queries, try to get LookML
+                const modelsWithSlowQueries = [...new Set(
+                    this.actualQueries
+                        .filter(q => q.model)
+                        .map(q => q.model)
+                )].slice(0, 5); // Limit to top 5 models
+                
+                console.log(`   Fetching LookML for models: ${modelsWithSlowQueries.join(', ')}`);
+                
+                for (const modelName of modelsWithSlowQueries) {
+                    try {
+                        // Try to get project files for this model
+                        const modelInfo = models.find(m => m.name === modelName);
+                        if (modelInfo && modelInfo.project_name) {
+                            const files = await this.lookerApiConnector.getProjectFiles(modelInfo.project_name);
+                            
+                            // Filter for LookML files
+                            const lookmlFileNames = files
+                                .filter(f => f.name && (
+                                    f.name.endsWith('.lkml') ||
+                                    f.name.endsWith('.view') ||
+                                    f.name.endsWith('.model') ||
+                                    f.name.endsWith('.explore')
+                                ))
+                                .slice(0, 3); // Limit files per model
+                            
+                            console.log(`   Found ${lookmlFileNames.length} LookML files in ${modelInfo.project_name}`);
+                            
+                            // Get content for each file
+                            for (const file of lookmlFileNames) {
+                                try {
+                                    const content = await this.lookerApiConnector.getFileContent(
+                                        modelInfo.project_name,
+                                        file.name
+                                    );
+                                    
+                                    if (content) {
+                                        lookmlFiles.push({
+                                            fileName: file.name,
+                                            project: modelInfo.project_name,
+                                            model: modelName,
+                                            content: content,
+                                            type: this.determineLookMLType(file.name),
+                                            size: content.length
+                                        });
+                                    }
+                                } catch (fileError) {
+                                    console.log(`   ⚠️ Could not fetch ${file.name}: ${fileError.message}`);
+                                }
+                            }
+                        }
+                    } catch (modelError) {
+                        console.log(`   ⚠️ Could not fetch LookML for model ${modelName}: ${modelError.message}`);
+                    }
+                }
+                
+            } catch (apiError) {
+                console.log(`   ⚠️ Looker API LookML fetch failed: ${apiError.message}`);
+            }
+        }
+        
+        // Strategy 2: Generate LookML recommendations based on slow queries
+        if (lookmlFiles.length === 0) {
+            console.log('   Strategy 2: Generating LookML recommendations from query analysis...');
+            
+            // Create synthetic LookML recommendations based on slow queries
+            const syntheticRecommendations = this.generateLookMLRecommendationsFromQueries();
+            
+            lookmlAnalysis = {
+                summary: {
+                    totalFiles: 0,
+                    method: 'query-based',
+                    message: 'LookML files not accessible - recommendations based on query patterns'
+                },
+                analyses: syntheticRecommendations,
+                recommendations: this.generateAggregateTableRecommendations()
+            };
+            
+        } else {
+            // Analyze actual LookML files
+            console.log(`   Analyzing ${lookmlFiles.length} LookML files...`);
+            lookmlAnalysis = await this.lookmlAnalyzer.analyzeLookMLFiles(lookmlFiles);
+        }
+        
+        this.lookmlFiles = lookmlFiles;
+        console.log(`✅ LookML analysis complete: ${lookmlFiles.length} files, ${lookmlAnalysis?.analyses?.length || 0} recommendations`);
+        
+        return lookmlAnalysis;
+        
+    } catch (error) {
+        console.error('❌ LookML analysis failed:', error.message);
+        
+        // Return fallback recommendations
+        return {
+            summary: {
+                totalFiles: 0,
+                method: 'fallback',
+                error: error.message
+            },
+            analyses: this.generateLookMLRecommendationsFromQueries(),
+            recommendations: this.generateAggregateTableRecommendations()
+        };
+    }
+}
+
+// Helper method to generate LookML recommendations from queries
+generateLookMLRecommendationsFromQueries() {
+    const recommendations = [];
+    
+    // Group queries by model.explore
+    const exploreGroups = {};
+    this.actualQueries.forEach(query => {
+        const key = `${query.model || 'unknown'}.${query.explore || 'unknown'}`;
+        if (!exploreGroups[key]) {
+            exploreGroups[key] = {
+                queries: [],
+                totalRuntime: 0,
+                maxRuntime: 0
+            };
+        }
+        exploreGroups[key].queries.push(query);
+        exploreGroups[key].totalRuntime += query.runtime_seconds || 0;
+        exploreGroups[key].maxRuntime = Math.max(exploreGroups[key].maxRuntime, query.runtime_seconds || 0);
+    });
+    
+    // Generate recommendations for each explore
+    Object.entries(exploreGroups).forEach(([exploreKey, data]) => {
+        const [model, explore] = exploreKey.split('.');
+        
+        if (data.maxRuntime > 60) {
+            recommendations.push({
+                type: 'pdt',
+                priority: data.maxRuntime > 120 ? 'critical' : 'high',
+                model: model,
+                explore: explore,
+                title: `Create PDT for ${explore}`,
+                description: `${data.queries.length} slow queries (max: ${data.maxRuntime.toFixed(1)}s)`,
+                lookmlCode: this.generatePDTCode(model, explore, data.maxRuntime),
+                estimatedImprovement: '70-90%',
+                implementation: 'Add to model file and deploy'
+            });
+        }
+        
+        if (data.queries.length > 3 && data.totalRuntime > 100) {
+            recommendations.push({
+                type: 'aggregate_table',
+                priority: 'high',
+                model: model,
+                explore: explore,
+                title: `Create Aggregate Table for ${explore}`,
+                description: `Pre-aggregate common query patterns`,
+                lookmlCode: this.generateAggregateTableCode(model, explore),
+                estimatedImprovement: '60-80%',
+                implementation: 'Add to explore definition'
+            });
+        }
+    });
+    
+    return recommendations;
+}
+
+// Helper to generate PDT code
+generatePDTCode(model, explore, runtime) {
+    return `view: ${explore}_pdt {
+  derived_table: {
+    sql: SELECT 
+           DATE_TRUNC('day', created_at) as created_date,
+           user_id,
+           COUNT(*) as event_count,
+           SUM(amount) as total_amount
+         FROM \${${explore}.SQL_TABLE_NAME}
+         WHERE created_at >= CURRENT_DATE - INTERVAL '90 days'
+         GROUP BY 1, 2 ;;
+    
+    datagroup_trigger: ${model}_default_datagroup
+    distribution_style: even
+    sortkeys: ["created_date"]
+    
+    # This PDT will improve query performance by ${Math.round(runtime * 0.8)}+ seconds
+  }
+  
+  dimension: created_date {
+    type: date
+    sql: \${TABLE}.created_date ;;
+  }
+  
+  dimension: user_id {
+    type: string
+    sql: \${TABLE}.user_id ;;
+  }
+  
+  measure: total_events {
+    type: sum
+    sql: \${TABLE}.event_count ;;
+  }
+  
+  measure: total_amount {
+    type: sum
+    sql: \${TABLE}.total_amount ;;
+    value_format_name: usd
+  }
+}`;
+}
+
+// Helper to generate aggregate table code
+generateAggregateTableCode(model, explore) {
+    return `explore: ${explore} {
+  aggregate_table: ${explore}_daily {
+    query: {
+      dimensions: [created_date, category]
+      measures: [count, total_revenue]
+      filters: {
+        created_date: "90 days"
+      }
+    }
+    
+    materialization: {
+      datagroup_trigger: ${model}_default_datagroup
+    }
+  }
+  
+  aggregate_table: ${explore}_weekly {
+    query: {
+      dimensions: [created_week, category, status]
+      measures: [count, total_revenue, average_amount]
+      filters: {
+        created_week: "12 weeks"
+      }
+    }
+    
+    materialization: {
+      datagroup_trigger: ${model}_default_datagroup
+    }
+  }
+}`;
+}
+
+// Helper to generate aggregate table recommendations
+generateAggregateTableRecommendations() {
+    const recommendations = [];
+    
+    // Find explores with multiple slow queries
+    const exploreStats = {};
+    this.actualQueries.forEach(query => {
+        const key = `${query.model}.${query.explore}`;
+        if (!exploreStats[key]) {
+            exploreStats[key] = { count: 0, totalRuntime: 0 };
+        }
+        exploreStats[key].count++;
+        exploreStats[key].totalRuntime += query.runtime_seconds || 0;
+    });
+    
+    Object.entries(exploreStats)
+        .filter(([_, stats]) => stats.count >= 2 && stats.totalRuntime > 60)
+        .forEach(([explore, stats]) => {
+            recommendations.push({
+                explore: explore,
+                queryCount: stats.count,
+                totalRuntime: stats.totalRuntime,
+                recommendation: 'Implement aggregate tables',
+                priority: stats.totalRuntime > 200 ? 'critical' : 'high'
+            });
+        });
+    
+    return recommendations;
+}
+
+// Helper to determine LookML file type
+determineLookMLType(fileName) {
+    const name = fileName.toLowerCase();
+    if (name.includes('.view')) return 'view';
+    if (name.includes('.model')) return 'model';
+    if (name.includes('.explore')) return 'explore';
+    if (name.includes('.dashboard')) return 'dashboard';
+    return 'lookml';
+}
+
 
     async testLookerAPIConnectivity() {
         try {
