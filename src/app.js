@@ -1,16 +1,16 @@
-// src/app.js - COMPLETE UPDATED FILE with loading screen fixes
+// src/app.js - Complete file with two-phase diagnostic support
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
-// Configure dotenv to override existing environment variables and add error logging
+// Configure dotenv to override existing environment variables
 const dotenvResult = require('dotenv').config({ override: true });
 
 if (dotenvResult.error) {
     console.error('⚠️  Error loading .env file:', dotenvResult.error);
 }
 
-// Import enhanced diagnostic engine
+// Import enhanced diagnostic engine - ONLY IMPORT, DO NOT REDECLARE
 const { QueryPerformanceDiagnostic } = require('./diagnostic-engine');
 
 const app = express();
@@ -31,7 +31,8 @@ app.get('/api/health', (req, res) => {
         features: {
             pagination: true,
             aiAnalysis: !!process.env.GEMINI_API_KEY,
-            mcpTools: ['get_dashboards', 'get_looks', 'query']
+            mcpTools: ['get_dashboards', 'get_looks', 'query'],
+            twoPhaseAnalysis: true
         }
     });
 });
@@ -51,6 +52,7 @@ app.get('/api/config', (req, res) => {
             usageAnalytics: process.env.ENABLE_USAGE_ANALYTICS !== 'false',
             paginatedFetching: true,
             queryAnalysis: !!process.env.GEMINI_API_KEY,
+            twoPhaseAnalysis: true,
             mcpTools: {
                 get_dashboards: true,
                 get_looks: true,
@@ -63,6 +65,220 @@ app.get('/api/config', (req, res) => {
             estimatedTotal: process.env.USE_MOCK_DATA === 'true' ? 336 : 'Unknown'
         }
     });
+});
+
+// NEW: Phase 1 - Fast diagnostic scan (no AI)
+app.post('/api/diagnostic/scan', async (req, res) => {
+    try {
+        console.log('🔍 Starting fast diagnostic scan...');
+        
+        const config = {
+            lookerUrl: process.env.LOOKER_BASE_URL,
+            clientId: process.env.LOOKER_CLIENT_ID,
+            clientSecret: process.env.LOOKER_CLIENT_SECRET
+        };
+
+        // Validate configuration
+        if (!config.lookerUrl || !config.clientId || !config.clientSecret) {
+            return res.status(400).json({
+                error: 'Missing Looker configuration',
+                details: 'Please check your .env file for LOOKER_BASE_URL, LOOKER_CLIENT_ID, and LOOKER_CLIENT_SECRET'
+            });
+        }
+
+        const diagnostic = new QueryPerformanceDiagnostic(config);
+        const results = await diagnostic.runFastScan();
+        
+        console.log('✅ Fast scan completed successfully');
+        console.log(`   Found ${results.slowQuerySummary?.totalSlowQueries || 0} slow queries`);
+        console.log(`   Scan duration: ${Math.round(results.scanDuration / 1000)}s`);
+        
+        res.json(results);
+        
+    } catch (error) {
+        console.error('❌ Fast scan failed:', error);
+        res.status(500).json({ 
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
+// NEW: Phase 2 - AI analysis for selected queries
+app.post('/api/diagnostic/analyze-batch', async (req, res) => {
+    try {
+        const { queries, maxQueries = 5 } = req.body;
+        
+        if (!queries || !Array.isArray(queries)) {
+            return res.status(400).json({
+                error: 'queries must be an array'
+            });
+        }
+
+        const config = {
+            lookerUrl: process.env.LOOKER_BASE_URL,
+            clientId: process.env.LOOKER_CLIENT_ID,
+            clientSecret: process.env.LOOKER_CLIENT_SECRET
+        };
+
+        console.log(`🤖 Starting batch AI analysis for ${Math.min(queries.length, maxQueries)} queries...`);
+        
+        const diagnostic = new QueryPerformanceDiagnostic(config);
+        await diagnostic.initializeConnectors();
+        
+        // Set up SQL analyzer with Looker API connector for AI analysis
+        diagnostic.sqlAnalyzer.setLookerApiConnector(diagnostic.lookerApiConnector);
+        
+        // Limit to prevent timeouts and excessive API usage
+        const queriesToAnalyze = queries.slice(0, maxQueries);
+        const analyses = [];
+        
+        for (const [index, query] of queriesToAnalyze.entries()) {
+            try {
+                console.log(`   Analyzing query ${index + 1}/${queriesToAnalyze.length}: ${query.query_id}`);
+                
+                const analysis = await diagnostic.sqlAnalyzer.analyzeRealQuery(
+                    query, 
+                    diagnostic.mcpConnector
+                );
+                analyses.push(analysis);
+                
+            } catch (queryError) {
+                console.error(`   Failed to analyze query ${query.query_id}:`, queryError.message);
+                analyses.push({
+                    queryId: query.query_id,
+                    slug: query.slug,
+                    runtime: query.runtime_seconds,
+                    model: query.model,
+                    explore: query.explore,
+                    error: queryError.message,
+                    fallback: true,
+                    analysis: {
+                        issues: [{
+                            type: 'analysis_error',
+                            severity: 'medium',
+                            description: 'Could not perform detailed analysis',
+                            recommendation: 'Manual investigation required'
+                        }],
+                        recommendations: [{
+                            type: 'manual_review',
+                            priority: 'medium',
+                            title: 'Manual Query Review',
+                            description: 'Review this query manually in Looker',
+                            expectedImprovement: 'Unknown',
+                            effort: 'medium'
+                        }]
+                    }
+                });
+            }
+        }
+        
+        console.log(`✅ Batch AI analysis completed: ${analyses.length} queries processed`);
+        res.json({
+            success: true,
+            totalQueries: queries.length,
+            analyzedQueries: analyses.length,
+            analyses: analyses,
+            timestamp: new Date(),
+            aiPowered: !!process.env.GEMINI_API_KEY
+        });
+        
+    } catch (error) {
+        console.error('❌ Batch analysis failed:', error);
+        res.status(500).json({ 
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// NEW: Single query AI analysis
+app.post('/api/diagnostic/analyze-query', async (req, res) => {
+    try {
+        const { queryId, query } = req.body;
+        
+        if (!queryId || !query) {
+            return res.status(400).json({
+                error: 'Missing queryId or query data'
+            });
+        }
+
+        const config = {
+            lookerUrl: process.env.LOOKER_BASE_URL,
+            clientId: process.env.LOOKER_CLIENT_ID,
+            clientSecret: process.env.LOOKER_CLIENT_SECRET
+        };
+
+        console.log(`🤖 Starting AI analysis for single query ${queryId}...`);
+        
+        const diagnostic = new QueryPerformanceDiagnostic(config);
+        await diagnostic.initializeConnectors();
+        
+        // Set up SQL analyzer with Looker API connector
+        diagnostic.sqlAnalyzer.setLookerApiConnector(diagnostic.lookerApiConnector);
+        
+        const analysis = await diagnostic.sqlAnalyzer.analyzeRealQuery(
+            query, 
+            diagnostic.mcpConnector
+        );
+        
+        console.log('✅ Single query AI analysis completed');
+        res.json({
+            success: true,
+            queryId: queryId,
+            analysis: analysis,
+            timestamp: new Date(),
+            aiPowered: !!process.env.GEMINI_API_KEY
+        });
+        
+    } catch (error) {
+        console.error('❌ Single query AI analysis failed:', error);
+        res.status(500).json({ 
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// EXISTING: Full diagnostic endpoint (backwards compatibility)
+app.post('/api/diagnostic/run', async (req, res) => {
+    try {
+        const config = {
+            lookerUrl: process.env.LOOKER_BASE_URL,
+            clientId: process.env.LOOKER_CLIENT_ID,
+            clientSecret: process.env.LOOKER_CLIENT_SECRET
+        };
+
+        if (!config.lookerUrl || !config.clientId || !config.clientSecret) {
+            return res.status(400).json({
+                error: 'Missing Looker configuration',
+                details: 'Please check your .env file'
+            });
+        }
+
+        console.log('🚀 Starting full diagnostic with config:', {
+            lookerUrl: config.lookerUrl,
+            clientId: config.clientId ? 'Configured' : 'Missing',
+            clientSecret: config.clientSecret ? 'Configured' : 'Missing'
+        });
+
+        const diagnostic = new QueryPerformanceDiagnostic(config);
+        const results = await diagnostic.runQueryPerformanceDiagnostic();
+        
+        console.log('📊 Full diagnostic completed, returning results:', {
+            slowQueries: results.slowQueryAnalysis?.totalSlowQueries || 0,
+            models: Object.keys(results.slowQueryAnalysis?.byModel || {}).length,
+            aiAnalysis: results.queryAnalysis?.length || 0
+        });
+        
+        res.json(results);
+    } catch (error) {
+        console.error('Full diagnostic failed:', error);
+        res.status(500).json({ 
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
 });
 
 // Test MCP connection endpoint
@@ -86,10 +302,9 @@ app.post('/api/test-mcp', async (req, res) => {
         }
 
         const diagnostic = new QueryPerformanceDiagnostic(config);
-        
         const connectorResults = await diagnostic.initializeConnectors();
         
-        if (connectorResults.mcp) {
+        if (connectorResults.mcp || connectorResults.lookerApi) {
             try {
                 const testConnectivity = await diagnostic.testLookerAPIConnectivity();
                 res.json({
@@ -129,119 +344,7 @@ app.post('/api/test-mcp', async (req, res) => {
     }
 });
 
-// UPDATED: Enhanced diagnostic endpoint with proper loading state management
-app.post('/api/diagnostic/run', async (req, res) => {
-    try {
-        // Set up Server-Sent Events for real-time progress updates
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no' // Disable nginx buffering
-        });
-        
-        // Send initial loading event
-        res.write(`data: ${JSON.stringify({
-            status: 'loading',
-            message: 'Starting diagnostic...',
-            progress: 0
-        })}\n\n`);
-        
-        const config = {
-            lookerUrl: process.env.LOOKER_BASE_URL,
-            clientId: process.env.LOOKER_CLIENT_ID,
-            clientSecret: process.env.LOOKER_CLIENT_SECRET
-        };
-
-        if (!config.lookerUrl || !config.clientId || !config.clientSecret) {
-            res.write(`data: ${JSON.stringify({
-                status: 'error',
-                error: 'Missing Looker configuration',
-                details: 'Please check your .env file'
-            })}\n\n`);
-            res.end();
-            return;
-        }
-
-        console.log('🚀 Starting diagnostic with config:', {
-            lookerUrl: config.lookerUrl,
-            clientId: config.clientId ? 'Configured' : 'Missing',
-            clientSecret: config.clientSecret ? 'Configured' : 'Missing'
-        });
-
-        const diagnostic = new QueryPerformanceDiagnostic(config);
-        
-        // Set up progress callback to send updates to client
-        diagnostic.onProgress = (message, progress) => {
-            if (!res.finished) {
-                res.write(`data: ${JSON.stringify({
-                    status: 'loading',
-                    message: message,
-                    progress: progress
-                })}\n\n`);
-            }
-        };
-        
-        // Run the diagnostic
-        const results = await diagnostic.runQueryPerformanceDiagnostic();
-        
-        console.log('📊 Diagnostic completed, returning results:', {
-            slowQueries: results.slowQueryAnalysis?.totalSlowQueries || 0,
-            models: Object.keys(results.slowQueryAnalysis?.byModel || {}).length,
-            aiAnalysis: results.queryAnalysis?.length || 0
-        });
-        
-        // Send final results
-        res.write(`data: ${JSON.stringify({
-            status: 'complete',
-            results: results
-        })}\n\n`);
-        res.end();
-        
-    } catch (error) {
-        console.error('Query diagnostic failed:', error);
-        
-        if (!res.finished) {
-            res.write(`data: ${JSON.stringify({
-                status: 'error',
-                error: error.message,
-                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-            })}\n\n`);
-            res.end();
-        }
-    }
-});
-
-// Alternative endpoint for clients that don't support SSE
-app.post('/api/diagnostic/run-simple', async (req, res) => {
-    try {
-        const config = {
-            lookerUrl: process.env.LOOKER_BASE_URL,
-            clientId: process.env.LOOKER_CLIENT_ID,
-            clientSecret: process.env.LOOKER_CLIENT_SECRET
-        };
-
-        if (!config.lookerUrl || !config.clientId || !config.clientSecret) {
-            return res.status(400).json({
-                error: 'Missing Looker configuration',
-                details: 'Please check your .env file'
-            });
-        }
-
-        const diagnostic = new QueryPerformanceDiagnostic(config);
-        const results = await diagnostic.runQueryPerformanceDiagnostic();
-        
-        res.json(results);
-    } catch (error) {
-        console.error('Query diagnostic failed:', error);
-        res.status(500).json({ 
-            error: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
-    }
-});
-
-// Debug MCP parameters
+// Debug MCP parameters endpoint
 app.post('/api/debug-mcp', async (req, res) => {
     try {
         const config = {
@@ -258,8 +361,6 @@ app.post('/api/debug-mcp', async (req, res) => {
         }
 
         const diagnostic = new QueryPerformanceDiagnostic(config);
-        
-        // Test connectivity through the diagnostic class
         const connectorResults = await diagnostic.initializeConnectors();
         
         res.json({ 
@@ -278,48 +379,104 @@ app.post('/api/debug-mcp', async (req, res) => {
     }
 });
 
-// Test specific query analysis
-app.post('/api/analyze-query', async (req, res) => {
+// Test MCP tool calls with correct tool names
+app.post('/api/test-mcp-tool', async (req, res) => {
     try {
-        const { queryId, queryText, runtime } = req.body;
+        const { toolName, arguments: toolArgs } = req.body;
         
-        if (!queryId || !queryText) {
+        if (!toolName) {
             return res.status(400).json({
-                error: 'Missing required fields: queryId and queryText'
+                success: false,
+                error: 'Tool name is required'
             });
         }
 
         const config = {
-            lookerUrl: process.env.LOOKER_BASE_URL || 'demo',
-            clientId: process.env.LOOKER_CLIENT_ID || 'demo',
-            clientSecret: process.env.LOOKER_CLIENT_SECRET || 'demo'
+            lookerUrl: process.env.LOOKER_BASE_URL,
+            clientId: process.env.LOOKER_CLIENT_ID,
+            clientSecret: process.env.LOOKER_CLIENT_SECRET
         };
 
+        if (!config.lookerUrl || !config.clientId || !config.clientSecret) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing Looker configuration',
+                details: 'Please check your .env file for LOOKER_BASE_URL, LOOKER_CLIENT_ID, and LOOKER_CLIENT_SECRET'
+            });
+        }
+
+        // Initialize diagnostic and connectors
         const diagnostic = new QueryPerformanceDiagnostic(config);
-        
-        // Create a mock query object for analysis
-        const queryData = {
-            query_id: queryId,
-            runtime_seconds: runtime || 0,
-            sql: queryText,
-            model: 'unknown',
-            explore: 'unknown'
-        };
-
-        // Use the SQL analyzer directly for query analysis
         await diagnostic.initializeConnectors();
-        const analysis = await diagnostic.sqlAnalyzer.analyzeRealQuery(queryData, diagnostic.mcpConnector);
+        
+        // Execute MCP tool call
+        const result = await diagnostic.mcpConnector.executeTool(toolName, toolArgs || {});
         
         res.json({
             success: true,
-            analysis: analysis,
-            timestamp: new Date(),
-            aiPowered: !!process.env.GEMINI_API_KEY
+            data: result,
+            toolName: toolName,
+            arguments: toolArgs,
+            timestamp: new Date()
         });
-        
+
     } catch (error) {
-        console.error('❌ Query analysis failed:', error);
-        res.status(500).json({ 
+        console.error('MCP test failed:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
+// Test available tools endpoint
+app.get('/api/available-tools', async (req, res) => {
+    try {
+        const config = {
+            lookerUrl: process.env.LOOKER_BASE_URL,
+            clientId: process.env.LOOKER_CLIENT_ID,
+            clientSecret: process.env.LOOKER_CLIENT_SECRET
+        };
+
+        if (!config.lookerUrl || !config.clientId || !config.clientSecret) {
+            return res.json({
+                success: false,
+                error: 'Missing configuration',
+                availableTools: [
+                    'get_models', 'get_explores', 'query', 'get_looks', 
+                    'run_look', 'query_sql', 'get_measures', 'get_dimensions',
+                    'get_filters', 'get_parameters', 'query_url'
+                ]
+            });
+        }
+
+        const diagnostic = new QueryPerformanceDiagnostic(config);
+        await diagnostic.initializeConnectors();
+        
+        try {
+            const tools = await diagnostic.mcpConnector.listAvailableTools();
+            res.json({
+                success: true,
+                tools: tools,
+                timestamp: new Date()
+            });
+        } catch (error) {
+            // Fallback to known tools from documentation
+            res.json({
+                success: true,
+                availableTools: [
+                    'get_models', 'get_explores', 'query', 'get_looks', 
+                    'run_look', 'query_sql', 'get_measures', 'get_dimensions',
+                    'get_filters', 'get_parameters', 'query_url'
+                ],
+                note: 'Fallback list from documentation',
+                error: error.message
+            });
+        }
+
+    } catch (error) {
+        res.status(500).json({
             success: false,
             error: error.message
         });
@@ -421,237 +578,6 @@ app.post('/api/analyze-lookml', async (req, res) => {
     }
 });
 
-// Helper function to execute MCP tools
-async function executeMCPTool(config, toolName, toolArgs) {
-    return new Promise((resolve, reject) => {
-        const { spawn } = require('child_process');
-        const path = require('path');
-        
-        // Try multiple possible toolbox locations
-        const possiblePaths = [
-            path.join(__dirname, 'scripts', 'toolbox'),
-            path.join(__dirname, '..', 'scripts', 'toolbox'),
-            path.join(process.cwd(), 'scripts', 'toolbox'),
-            'toolbox'
-        ];
-        
-        let toolboxPath = null;
-        for (const testPath of possiblePaths) {
-            try {
-                const fs = require('fs');
-                if (fs.existsSync(testPath)) {
-                    toolboxPath = testPath;
-                    console.log(`Found toolbox at: ${toolboxPath}`);
-                    break;
-                }
-            } catch (e) {
-                // Continue to next path
-            }
-        }
-        
-        if (!toolboxPath) {
-            reject(new Error(`MCP toolbox not found. Searched paths: ${possiblePaths.join(', ')}`));
-            return;
-        }
-        
-        const toolbox = spawn(toolboxPath, [
-            '--stdio', 
-            '--prebuilt', 
-            'looker'
-        ], {
-            env: {
-                ...process.env,
-                LOOKER_BASE_URL: config.lookerUrl,
-                LOOKER_CLIENT_ID: config.clientId,
-                LOOKER_CLIENT_SECRET: config.clientSecret
-            },
-            stdio: ['pipe', 'pipe', 'pipe']
-        });
-
-        let responseBuffer = '';
-        let errorBuffer = '';
-        let processCompleted = false;
-
-        toolbox.stdout.on('data', (data) => {
-            responseBuffer += data.toString();
-        });
-
-        toolbox.stderr.on('data', (data) => {
-            errorBuffer += data.toString();
-        });
-
-        toolbox.on('close', (code) => {
-            if (processCompleted) return;
-            processCompleted = true;
-            
-            if (errorBuffer.includes('invalid tool name')) {
-                reject(new Error(`Invalid tool name: ${toolName}`));
-                return;
-            }
-            
-            try {
-                const result = parseMCPResponse(responseBuffer);
-                resolve(result);
-            } catch (error) {
-                reject(new Error(`Failed to parse MCP response: ${error.message}`));
-            }
-        });
-
-        toolbox.on('error', (error) => {
-            if (!processCompleted) {
-                processCompleted = true;
-                reject(new Error(`MCP process error: ${error.message}`));
-            }
-        });
-
-        const command = {
-            jsonrpc: "2.0",
-            id: 1,
-            method: "tools/call",
-            params: {
-                name: toolName,
-                arguments: toolArgs
-            }
-        };
-
-        console.log(`Executing MCP tool: ${toolName}`, toolArgs);
-        
-        toolbox.stdin.write(JSON.stringify(command) + '\n');
-        toolbox.stdin.end();
-
-        setTimeout(() => {
-            if (!processCompleted) {
-                processCompleted = true;
-                toolbox.kill('SIGKILL');
-                reject(new Error(`MCP tool ${toolName} timed out after 20 seconds`));
-            }
-        }, 20000);
-    });
-}
-
-// Parse MCP response
-function parseMCPResponse(responseBuffer) {
-    if (!responseBuffer || responseBuffer.length < 10) {
-        return { message: 'Empty response', data: null };
-    }
-
-    const lines = responseBuffer.split('\n').filter(line => line.trim());
-    const results = [];
-    
-    for (const line of lines) {
-        try {
-            const response = JSON.parse(line);
-            
-            if (response.result && response.result.content) {
-                for (const item of response.result.content) {
-                    if (item.type === 'text' && item.text) {
-                        try {
-                            const data = JSON.parse(item.text);
-                            results.push(data);
-                        } catch (parseError) {
-                            results.push({ raw_text: item.text });
-                        }
-                    } else {
-                        results.push(item);
-                    }
-                }
-            } else if (response.error) {
-                throw new Error(response.error.message || 'MCP error');
-            }
-        } catch (lineError) {
-            // Skip invalid lines
-            continue;
-        }
-    }
-    
-    return results.length === 1 ? results[0] : results;
-}
-
-// Test MCP tool calls
-app.post('/api/test-mcp-tool', async (req, res) => {
-    try {
-        const { toolName, arguments: toolArgs } = req.body;
-        
-        if (!toolName) {
-            return res.status(400).json({
-                success: false,
-                error: 'Tool name is required'
-            });
-        }
-
-        const config = {
-            lookerUrl: process.env.LOOKER_BASE_URL,
-            clientId: process.env.LOOKER_CLIENT_ID,
-            clientSecret: process.env.LOOKER_CLIENT_SECRET
-        };
-
-        if (!config.lookerUrl || !config.clientId || !config.clientSecret) {
-            return res.status(400).json({
-                success: false,
-                error: 'Missing Looker configuration',
-                details: 'Please check your .env file'
-            });
-        }
-
-        const result = await executeMCPTool(config, toolName, toolArgs || {});
-        
-        res.json({
-            success: true,
-            data: result,
-            toolName: toolName,
-            arguments: toolArgs,
-            timestamp: new Date()
-        });
-
-    } catch (error) {
-        console.error('MCP test failed:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
-    }
-});
-
-// Test available tools endpoint
-app.get('/api/available-tools', async (req, res) => {
-    try {
-        const config = {
-            lookerUrl: process.env.LOOKER_BASE_URL,
-            clientId: process.env.LOOKER_CLIENT_ID,
-            clientSecret: process.env.LOOKER_CLIENT_SECRET
-        };
-
-        if (!config.lookerUrl || !config.clientId || !config.clientSecret) {
-            return res.json({
-                success: false,
-                error: 'Missing configuration',
-                availableTools: [
-                    'get_models', 'get_explores', 'query', 'get_looks', 
-                    'run_look', 'query_sql', 'get_measures', 'get_dimensions',
-                    'get_filters', 'get_parameters', 'query_url'
-                ]
-            });
-        }
-
-        res.json({
-            success: true,
-            availableTools: [
-                'get_models', 'get_explores', 'query', 'get_looks', 
-                'run_look', 'query_sql', 'get_measures', 'get_dimensions',
-                'get_filters', 'get_parameters', 'query_url'
-            ],
-            note: 'Standard MCP Looker tools'
-        });
-
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
 // Start server with enhanced logging
 app.listen(PORT, () => {
     console.log('');
@@ -671,23 +597,17 @@ app.listen(PORT, () => {
     console.log(`   Client Secret: ${process.env.LOOKER_CLIENT_SECRET ? '✅ Configured' : '❌ Missing'}`);
     console.log(`   Gemini API Key: ${process.env.GEMINI_API_KEY ? '✅ Configured (AI Enabled)' : '⚠️ Missing (AI Disabled)'}`);
     
-    console.log('--- ENV DEBUG ---');
-    console.log('Current working directory:', process.cwd());
-    const geminiKey = process.env.GEMINI_API_KEY;
-    console.log('GEMINI_API_KEY loaded:', !!geminiKey);
-    console.log('GEMINI_API_KEY length:', geminiKey?.length || 0);
-    console.log('GEMINI_API_KEY starts with:', geminiKey?.substring(0, 8) || 'NONE');
-    console.log('==================');
     console.log('');
     
     // Feature status
     console.log('🚀 Enhanced Features:');
+    console.log('   ✅ Two-Phase Analysis (Fast Scan + Selective AI)');
     console.log('   ✅ Query performance analysis');
     console.log('   ✅ LookML file fetching and optimization');
-    console.log(`   ${process.env.GEMINI_API_KEY ? '✅' : '❌'} AI-powered query analysis (Gemini 2.0)`);
+    console.log(`   ${process.env.GEMINI_API_KEY ? '✅' : '❌'} AI-powered query analysis`);
     console.log('   ✅ Real-time slow query monitoring');
-    console.log('   ✅ Server-Sent Events for progress tracking');
     console.log('   ✅ Interactive dashboard with detailed breakdowns');
+    console.log('   ✅ MCP integration with fallback to direct API');
     console.log('');
     
     // Mode status
@@ -706,20 +626,18 @@ app.listen(PORT, () => {
     
     console.log('');
     console.log('🎯 Next Steps:');
-    console.log('   1. Open http://localhost:' + PORT + ' for basic interface');
-    console.log('   2. Open http://localhost:' + PORT + '/dashboard for advanced React UI');
+    console.log('   1. Open http://localhost:' + PORT + '/dashboard for React UI');
+    console.log('   2. Use Two-Phase Diagnostic tab for optimal performance');
     console.log('   3. Test connection with POST /api/test-mcp');
-    console.log('   4. Run full diagnostic with POST /api/diagnostic/run');
+    console.log('   4. Run fast scan first, then selective AI analysis');
     console.log('');
     
     if (!process.env.GEMINI_API_KEY) {
         console.log('💡 Pro Tip: Add GEMINI_API_KEY to .env for AI-powered query analysis');
-        console.log('   Get your API key from: https://aistudio.google.com/app/apikey');
+        console.log('   Get your API key from: https://makersuite.google.com/app/apikey');
         console.log('');
     }
     
-    console.log('🏆 Built for Looker Hackathon 2025 | MCP + AI Powered');
+    console.log('🏆 Built for Looker Hackathon 2025 | Two-Phase + AI Powered');
     console.log('📚 Documentation: Check README.md for troubleshooting');
 });
-
-module.exports = app;

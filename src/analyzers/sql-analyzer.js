@@ -898,37 +898,151 @@ Provide a JSON response with this structure:
         }
     }
 
-    parseAIResponse(aiResponse, sql, runtime, query) {
-        try {
-            // Extract JSON from response
-            const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-                throw new Error('No JSON found in AI response');
-            }
+// Fix for parseAIResponse method in src/analyzers/sql-analyzer.js
+// Replace the existing parseAIResponse method with this improved version:
 
-            const parsed = JSON.parse(jsonMatch[0]);
+parseAIResponse(aiResponse, originalSQL, runtime) {
+    try {
+        console.log('      🔍 Parsing AI response...');
+        console.log('      📝 Response length:', aiResponse.length);
+        console.log('      📝 Response preview:', aiResponse.substring(0, 200) + '...');
+        
+        // Try to find JSON in the response
+        let jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        
+        if (!jsonMatch) {
+            console.log('      ⚠️ No JSON found, trying alternative patterns...');
             
-            // Ensure all required fields exist
-            return {
-                complexity: parsed.complexity || 'medium',
-                issues: Array.isArray(parsed.issues) ? parsed.issues : [],
-                recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
-                optimizedSQL: parsed.optimizedSQL || this.generateOptimizedSQL(sql, parsed.issues || []),
-                lookmlSuggestions: Array.isArray(parsed.lookmlSuggestions) ? parsed.lookmlSuggestions : [],
-                aiPowered: true,
-                performanceAnalysis: {
-                    estimatedRowsProcessed: this.estimateRowsFromSQL(sql),
-                    expensiveOperations: this.findExpensiveOperations(sql),
-                    bottlenecks: parsed.bottlenecks || this.identifyBottlenecks(sql, runtime)
-                },
-                implementationSteps: this.generateImplementationSteps(parsed.recommendations || [])
-            };
-        } catch (parseError) {
-            console.error('      ⚠️ Failed to parse AI response:', parseError.message);
-            // Fall back to heuristic analysis
-            return this.analyzeWithEnhancedHeuristics(sql, runtime, query);
+            // Try to find JSON with ```json wrapper
+            const codeBlockMatch = aiResponse.match(/```json\s*([\s\S]*?)\s*```/);
+            if (codeBlockMatch) {
+                jsonMatch = [codeBlockMatch[1]];
+                console.log('      ✅ Found JSON in code block');
+            } else {
+                // Try to extract any object-like structure
+                const objectMatch = aiResponse.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/);
+                if (objectMatch) {
+                    jsonMatch = objectMatch;
+                    console.log('      ✅ Found object structure');
+                }
+            }
         }
+        
+        if (jsonMatch) {
+            try {
+                const parsed = JSON.parse(jsonMatch[0]);
+                console.log('      ✅ Successfully parsed AI JSON response');
+                
+                // Validate the structure and provide defaults
+                const result = {
+                    complexity: parsed.complexity || this.categorizeComplexityFromRuntime(runtime),
+                    issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+                    recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
+                    optimizedSQL: parsed.optimizedSQL || null,
+                    aiPowered: true,
+                    aiAnalysisSuccess: true,
+                    lookmlSuggestions: Array.isArray(parsed.lookmlSuggestions) ? parsed.lookmlSuggestions : [],
+                    implementationSteps: Array.isArray(parsed.recommendations) ? 
+                        this.generateImplementationSteps(parsed.recommendations) : []
+                };
+                
+                // Add default issues/recommendations if none provided
+                if (result.issues.length === 0) {
+                    result.issues.push({
+                        type: 'performance',
+                        severity: runtime > 300 ? 'critical' : runtime > 120 ? 'high' : 'medium',
+                        description: `Query runtime of ${runtime}s indicates performance issues`,
+                        recommendation: 'Review query structure and consider optimization'
+                    });
+                }
+                
+                if (result.recommendations.length === 0) {
+                    result.recommendations.push({
+                        type: 'pdt_creation',
+                        priority: runtime > 300 ? 'critical' : runtime > 120 ? 'high' : 'medium',
+                        title: 'Consider PDT Implementation',
+                        action: 'Create PDT to pre-compute query results',
+                        expectedImprovement: runtime > 300 ? '85-95%' : runtime > 120 ? '70-85%' : '50-70%',
+                        effort: 'medium',
+                        category: 'lookml'
+                    });
+                }
+                
+                console.log(`      📊 Parsed result: ${result.issues.length} issues, ${result.recommendations.length} recommendations`);
+                return result;
+                
+            } catch (parseError) {
+                console.error('      ❌ JSON parse error:', parseError.message);
+                console.log('      📝 Attempted to parse:', jsonMatch[0].substring(0, 200) + '...');
+            }
+        } else {
+            console.log('      ⚠️ No JSON structure found in AI response');
+        }
+        
+    } catch (error) {
+        console.error('      ❌ AI response parsing failed:', error.message);
     }
+    
+    // Fallback to heuristic analysis
+    console.log('      🔄 Falling back to heuristic analysis...');
+    return this.analyzeWithEnhancedHeuristics(originalSQL, runtime, {});
+}
+
+// Add this helper method to categorize complexity from runtime
+categorizeComplexityFromRuntime(runtime) {
+    if (runtime > 600) return 'critical';
+    if (runtime > 300) return 'high';
+    if (runtime > 120) return 'medium';
+    return 'low';
+}
+
+// Also update the buildEnhancedAnalysisPrompt method for better JSON structure:
+buildEnhancedAnalysisPrompt(sql, runtime, query) {
+    return `You are a Looker and SQL performance expert. Analyze this slow query and provide specific optimization recommendations.
+
+QUERY DETAILS:
+- Runtime: ${runtime} seconds (${runtime > 300 ? 'CRITICAL' : runtime > 120 ? 'HIGH' : 'MEDIUM'} priority)
+- Model: ${query.model || 'Unknown'}
+- Explore: ${query.explore || 'Unknown'}
+
+ACTUAL SQL FROM LOOKER:
+\`\`\`sql
+${sql}
+\`\`\`
+
+IMPORTANT: Respond with ONLY valid JSON in this exact format:
+{
+  "complexity": "critical|high|medium|low",
+  "issues": [
+    {
+      "type": "performance|syntax|structure",
+      "severity": "critical|high|medium|low", 
+      "description": "Clear description of the issue",
+      "recommendation": "Specific fix recommendation"
+    }
+  ],
+  "recommendations": [
+    {
+      "type": "pdt_creation|index_optimization|query_restructure|lookml_improvement",
+      "priority": "critical|high|medium|low",
+      "title": "Short recommendation title",
+      "action": "Specific action to take",
+      "expectedImprovement": "60-80%",
+      "effort": "low|medium|high",
+      "category": "sql|lookml|database"
+    }
+  ],
+  "lookmlSuggestions": [
+    {
+      "suggestion": "Create PDT for this query pattern",
+      "reasoning": "Pre-computing results will eliminate ${runtime}s runtime",
+      "lookmlCode": "view: optimized_view { derived_table: { ... } }"
+    }
+  ]
+}
+
+Focus on the most impactful optimizations for this ${runtime}-second query. Provide actionable, specific recommendations.`;
+}
 }
 
 module.exports = { SQLAnalyzer };
