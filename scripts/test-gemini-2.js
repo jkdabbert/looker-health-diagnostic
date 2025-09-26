@@ -18,8 +18,7 @@ async function testGemini2API() {
         return false;
     }
     
-    console.log(`✅ API Key found: ${apiKey.substring(0, 10)}...${apiKey.slice(-4)}`);
-    console.log(`   Length: ${apiKey.length} characters\n`);
+    s
     
     // Test different API methods
     const methods = [

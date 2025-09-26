@@ -129,7 +129,16 @@
           // Handle both nested analysis and direct properties
           const issues = analysis.analysis?.issues || analysis.issues || [];
           const recommendations = analysis.analysis?.recommendations || analysis.recommendations || [];
-          const originalSQL = analysis.originalSQL || analysis.sql || '';
+          const originalSQL = analysis.originalSQL || analysis.sql || analysis.sqlAnalysis?.originalSQL || '';
+          
+          // Debug the SQL availability
+          console.log('🔍 SQL data check:', {
+            originalSQL: analysis.originalSQL ? 'present' : 'missing',
+            sql: analysis.sql ? 'present' : 'missing', 
+            sqlAnalysis: analysis.sqlAnalysis ? 'present' : 'missing',
+            runtime: analysis.runtime,
+            runtime_seconds: analysis.runtime_seconds
+          });
           
           const optimizedSQLResult = generateOptimizedSQL(originalSQL, issues, recommendations);
 
@@ -144,7 +153,7 @@
                   </h4>
                   <div className="flex items-center space-x-2">
                     <span className="bg-red-100 text-red-800 text-sm px-3 py-1 rounded-full font-medium">
-                      {analysis.runtime || analysis.runtime_seconds || 'N/A'}s runtime
+                      {analysis.runtime || analysis.runtime_seconds || analysis.runtimeSeconds || 'N/A'}s runtime
                     </span>
                     {analysis.overallPriority && (
                       <span className={`text-sm px-3 py-1 rounded-full font-medium ${getSeverityColor(analysis.overallPriority)}`}>
@@ -244,7 +253,7 @@
                     <div className="flex items-center justify-between">
                       <h5 className="font-medium text-gray-700">SQL Optimization Comparison</h5>
                       <div className="text-sm text-gray-500">
-                        Runtime: {analysis.runtime}s → Estimated: 2-5s
+                        Runtime: {analysis.runtime || analysis.runtime_seconds || analysis.runtimeSeconds || 'N/A'}s → Estimated: 2-5s
                       </div>
                     </div>
                     
@@ -252,11 +261,11 @@
                       {/* Original SQL */}
                       <div className="border rounded-lg overflow-hidden">
                         <div className="bg-red-50 px-4 py-2 border-b border-red-200">
-                          <h6 className="font-medium text-red-800">🐌 Original SQL ({analysis.runtime}s)</h6>
+                          <h6 className="font-medium text-red-800">🐌 Original SQL ({analysis.runtime || analysis.runtime_seconds || analysis.runtimeSeconds || 'N/A'}s)</h6>
                         </div>
                         <div className="bg-gray-50 p-4 max-h-80 overflow-y-auto">
                           <pre className="text-sm text-gray-800 whitespace-pre-wrap">
-                            {analysis.originalSQL || analysis.sql || 'SQL not available'}
+                            {originalSQL || 'SQL not available - check backend logs for SQL fetch'}
                           </pre>
                         </div>
                       </div>
