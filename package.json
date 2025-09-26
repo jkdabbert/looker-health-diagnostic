@@ -54,8 +54,8 @@
   "dependencies": {
     "@google-cloud/bigquery": "^7.9.4",
     "@google-cloud/storage": "^7.17.1",
-    "@looker/sdk": "^23.16.0",
-    "@looker/sdk-node": "^23.16.0",
+    "@looker/sdk": "^25.16.0",
+    "@looker/sdk-node": "^25.16.0",
     "axios": "^1.12.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
