@@ -39,13 +39,9 @@
 
           // Debug logging
           console.log('🔍 SQLComparisonCard received analysis:', analysis);
-          console.log('🔍 Analysis structure check:', {
-            hasAnalysis: !!analysis.analysis,
-            hasIssues: !!analysis.analysis?.issues,
-            hasRecommendations: !!analysis.analysis?.recommendations,
-            directIssues: !!analysis.issues,
-            directRecommendations: !!analysis.recommendations
-          });
+          console.log('🔍 All available fields:', Object.keys(analysis));
+          console.log('🔍 Analysis nested object:', analysis.analysis ? Object.keys(analysis.analysis) : 'no nested analysis');
+          console.log('🔍 Full analysis object:', JSON.stringify(analysis, null, 2));
 
           const getSeverityColor = (severity) => {
             switch (severity?.toLowerCase()) {
@@ -129,15 +125,16 @@
           // Handle both nested analysis and direct properties
           const issues = analysis.analysis?.issues || analysis.issues || [];
           const recommendations = analysis.analysis?.recommendations || analysis.recommendations || [];
-          const originalSQL = analysis.originalSQL || analysis.sql || analysis.sqlAnalysis?.originalSQL || '';
+          const originalSQL = analysis.analysis?.originalSQL || analysis.originalSQL || analysis.sql || '';
+          const runtime = analysis.analysis?.runtime || analysis.runtime || analysis.runtime_seconds || 'N/A';
           
           // Debug the SQL availability
-          console.log('🔍 SQL data check:', {
-            originalSQL: analysis.originalSQL ? 'present' : 'missing',
-            sql: analysis.sql ? 'present' : 'missing', 
-            sqlAnalysis: analysis.sqlAnalysis ? 'present' : 'missing',
-            runtime: analysis.runtime,
-            runtime_seconds: analysis.runtime_seconds
+          console.log('🔍 SQL data check (FIXED):', {
+            originalSQL: originalSQL ? `${originalSQL.length} chars` : 'missing',
+            runtime: runtime,
+            foundIn: analysis.analysis?.originalSQL ? 'analysis.analysis.originalSQL' : 
+                     analysis.originalSQL ? 'analysis.originalSQL' : 
+                     analysis.sql ? 'analysis.sql' : 'nowhere'
           });
           
           const optimizedSQLResult = generateOptimizedSQL(originalSQL, issues, recommendations);
@@ -153,7 +150,7 @@
                   </h4>
                   <div className="flex items-center space-x-2">
                     <span className="bg-red-100 text-red-800 text-sm px-3 py-1 rounded-full font-medium">
-                      {analysis.runtime || analysis.runtime_seconds || analysis.runtimeSeconds || 'N/A'}s runtime
+                      {runtime}s runtime
                     </span>
                     {analysis.overallPriority && (
                       <span className={`text-sm px-3 py-1 rounded-full font-medium ${getSeverityColor(analysis.overallPriority)}`}>
@@ -253,7 +250,7 @@
                     <div className="flex items-center justify-between">
                       <h5 className="font-medium text-gray-700">SQL Optimization Comparison</h5>
                       <div className="text-sm text-gray-500">
-                        Runtime: {analysis.runtime || analysis.runtime_seconds || analysis.runtimeSeconds || 'N/A'}s → Estimated: 2-5s
+                        Runtime: {runtime}s → Estimated: 2-5s
                       </div>
                     </div>
                     
@@ -261,11 +258,11 @@
                       {/* Original SQL */}
                       <div className="border rounded-lg overflow-hidden">
                         <div className="bg-red-50 px-4 py-2 border-b border-red-200">
-                          <h6 className="font-medium text-red-800">🐌 Original SQL ({analysis.runtime || analysis.runtime_seconds || analysis.runtimeSeconds || 'N/A'}s)</h6>
+                          <h6 className="font-medium text-red-800">🐌 Original SQL ({runtime}s)</h6>
                         </div>
                         <div className="bg-gray-50 p-4 max-h-80 overflow-y-auto">
                           <pre className="text-sm text-gray-800 whitespace-pre-wrap">
-                            {originalSQL || 'SQL not available - check backend logs for SQL fetch'}
+                            {originalSQL || 'SQL not available'}
                           </pre>
                         </div>
                       </div>
@@ -385,10 +382,14 @@
 
           const selectTop = (n) => {
             if (!scanResults) return;
-            const topQueries = scanResults.slowQuerySummary.queries
+            // Deduplicate queries before selecting top N
+            const uniqueQueries = scanResults.slowQuerySummary.queries
+              .filter((query, index, array) => 
+                array.findIndex(q => q.query_id === query.query_id) === index
+              )
               .sort((a, b) => b.runtime_seconds - a.runtime_seconds)
               .slice(0, n);
-            setSelectedQueries(new Set(topQueries.map(q => q.query_id)));
+            setSelectedQueries(new Set(uniqueQueries.map(q => q.query_id)));
           };
 
           const analyzeSelectedQueries = async () => {
@@ -561,7 +562,12 @@
                       </button>
                       <button
                         onClick={() => {
-                          const criticalQueries = scanResults.slowQuerySummary.queries
+                          // Deduplicate before filtering critical queries
+                          const uniqueQueries = scanResults.slowQuerySummary.queries
+                            .filter((query, index, array) => 
+                              array.findIndex(q => q.query_id === query.query_id) === index
+                            );
+                          const criticalQueries = uniqueQueries
                             .filter(q => q.runtimeCategory === 'critical');
                           setSelectedQueries(new Set(criticalQueries.map(q => q.query_id)));
                         }}
@@ -593,6 +599,10 @@
                     <div className="space-y-2 max-h-96 overflow-y-auto">
                       {scanResults.slowQuerySummary.queries
                         .sort((a, b) => b.runtime_seconds - a.runtime_seconds)
+                        // Deduplicate by query_id to prevent duplicate analysis
+                        .filter((query, index, array) => 
+                          array.findIndex(q => q.query_id === query.query_id) === index
+                        )
                         .map((query, index) => (
                           <div key={`${query.query_id}-${index}`} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
                             <div className="flex items-center justify-between">
@@ -608,7 +618,7 @@
                                     {query.slug || query.query_id}
                                   </div>
                                   <div className="text-sm text-gray-500">
-                                    {query.model}.{query.explore} • {query.dashboard_title || 'No dashboard'} • {query.user_email}
+                                    {query.model}.{query.explore} • {query.dashboard_title || 'No dashboard'} • {query.userl}
                                   </div>
                                 </div>
                               </div>
@@ -642,7 +652,7 @@
                     {/* Summary Stats */}
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                       <div className="bg-purple-50 p-4 rounded-lg text-center">
-                        <div className="text-2xl font-bold text-purple-600">{aiAnalysisResults.length}</div>
+                        <div className="text-2xl font-bold text-purple-600">{aiAnalysisResults.length}/2</div>
                         <div className="text-sm text-gray-600">Queries Analyzed</div>
                       </div>
                       <div className="bg-red-50 p-4 rounded-lg text-center">
@@ -1529,10 +1539,10 @@ ${response.request.arguments}`}
                   <nav className="flex space-x-8">
                     {[
                       { id: 'two-phase', label: 'Two-Phase Diagnostic', icon: Search },
-                      { id: 'overview', label: 'Overview', icon: Activity },
-                      { id: 'query-analysis', label: 'SQL Analysis', icon: Code },
-                      { id: 'issues', label: 'Issues', icon: AlertTriangle },
-                      { id: 'recommendations', label: 'Recommendations', icon: Target },
+                      // { id: 'overview', label: 'Overview', icon: Activity },
+                      { id: 'query-analysis', label: 'BQ Analysis', icon: Code },
+                      // { id: 'issues', label: 'Issues', icon: AlertTriangle },
+                      // { id: 'recommendations', label: 'Recommendations', icon: Target },
                       { id: 'api-testing', label: 'API Testing', icon: Settings }
                     ].map(({ id, label, icon: Icon }) => (
                       <button
@@ -1561,7 +1571,6 @@ ${response.request.arguments}`}
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                   <div className="flex items-center justify-between text-sm text-gray-600">
                     <span>Enhanced with Two-Phase Analysis & AI-Powered SQL Optimization</span>
-                    <span>Built for Looker Hackathon 2025</span>
                   </div>
                 </div>
               </div>
