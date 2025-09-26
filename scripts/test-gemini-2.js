@@ -18,6 +18,7 @@ async function testGemini2API() {
         return false;
     }
     
+
     
     // Test different API methods
     const methods = [
