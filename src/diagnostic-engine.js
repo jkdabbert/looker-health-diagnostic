@@ -539,7 +539,173 @@ class QueryPerformanceDiagnostic {
             };
         }
     }
+    async runFastScan() {
+        console.log('🏃‍♂️ Starting fast diagnostic scan (no AI analysis)...');
+        const startTime = Date.now();
+        
+        try {
+            // Step 1: Initialize connectors
+            console.log('Step 1: Initializing connectors...');
+            const connectorResults = await this.initializeConnectors();
+            
+            // Step 2: Fetch only slow queries and explores (skip LookML for speed)
+            console.log('Step 2: Fetching slow queries and explores...');
+            const dataPromises = [
+                this.withTimeout(this.fetchSlowQueries(), 30000, 'slow query fetching'),
+                this.withTimeout(this.fetchExplores(), 45000, 'explore fetching')
+            ];
+            
+            const dataResults = await Promise.allSettled(dataPromises);
+            
+            this.actualQueries = this.extractPromiseResult(dataResults[0], []);
+            this.explores = this.extractPromiseResult(dataResults[1], []);
+            
+            console.log(`Fast data collection complete:`);
+            console.log(`  - Slow Queries: ${this.actualQueries.length}`);
+            console.log(`  - Explores: ${this.explores.length}`);
+            
+            // Step 3: Basic analysis (no AI)
+            console.log('Step 3: Running basic performance analysis...');
+            const performanceResults = this.performanceAnalyzer.analyzeExplores(this.explores);
+            const healthMetrics = this.performanceAnalyzer.calculateHealthMetrics(this.explores, this.actualQueries);
+            const overallGrade = this.performanceAnalyzer.calculatePerformanceGrade(this.explores, this.actualQueries);
+            
+            const scanDuration = Date.now() - startTime;
+            
+            // Generate fast scan report
+            const report = {
+                timestamp: new Date(),
+                scanType: 'fast',
+                scanDuration: scanDuration,
+                healthMetrics: healthMetrics,
+                overallGrade: overallGrade,
+                
+                slowQuerySummary: {
+                    totalSlowQueries: this.actualQueries.length,
+                    avgRuntime: this.calculateAverageRuntime(),
+                    runtimeDistribution: this.getRuntimeDistribution(),
+                    byModel: this.groupQueriesByModel(),
+                    byPriority: this.groupQueriesByPriority(),
+                    queries: this.actualQueries.map(q => ({
+                        query_id: q.query_id,
+                        slug: q.slug,
+                        runtime_seconds: q.runtime_seconds,
+                        model: q.model,
+                        explore: q.explore,
+                        dashboard_title: q.dashboard_title,
+                        user_email: q.user_email,
+                        runtimeCategory: q.runtimeCategory,
+                        optimizationPriority: q.optimizationPriority
+                    }))
+                },
+                
+                exploreAnalysis: {
+                    totalExplores: this.explores.length,
+                    performanceSummary: performanceResults.summary,
+                    byModel: this.groupExploresByModel()
+                },
+                
+                recommendations: {
+                    immediate: this.generateImmediateRecommendations(),
+                    aiAnalysisAvailable: !!process.env.GEMINI_API_KEY,
+                    nextSteps: [
+                        'Review slow queries above',
+                        'Select queries for detailed AI analysis',
+                        'Focus on critical priority queries first',
+                        'Consider implementing PDTs for queries >60s'
+                    ]
+                },
+                
+                connectorStatus: connectorResults,
+                processingStats: {
+                    queriesFound: this.actualQueries.length,
+                    exploresFetched: this.explores.length,
+                    scanDurationMs: scanDuration
+                }
+            };
+            
+            console.log(`✅ Fast scan completed in ${Math.round(scanDuration / 1000)}s`);
+            console.log(`🎯 Found ${this.actualQueries.length} slow queries for potential AI analysis`);
+            
+            return report;
+            
+        } catch (error) {
+            console.error('Fast scan failed:', error);
+            const scanDuration = Date.now() - startTime;
+            
+            return {
+                error: error.message,
+                scanType: 'fast',
+                timestamp: new Date(),
+                scanDuration: scanDuration,
+                partialResults: {
+                    queries: this.actualQueries.length,
+                    explores: this.explores.length
+                }
+            };
+        }
+    }
 
+    generateImmediateRecommendations() {
+        const recommendations = [];
+        
+        const criticalQueries = this.actualQueries.filter(q => q.runtime_seconds > 120);
+        if (criticalQueries.length > 0) {
+            recommendations.push({
+                priority: 'critical',
+                type: 'immediate_action',
+                title: `${criticalQueries.length} Critical Queries Need Immediate Attention`,
+                description: 'Queries taking >2 minutes require urgent optimization',
+                action: 'Create PDTs or aggregate tables immediately',
+                queries: criticalQueries.slice(0, 3).map(q => q.query_id)
+            });
+        }
+        
+        const exploreGroups = this.groupQueriesByExplore();
+        Object.entries(exploreGroups)
+            .filter(([_, data]) => data.queryCount >= 3 && data.avgRuntime > 30)
+            .forEach(([explore, data]) => {
+                recommendations.push({
+                    priority: 'high',
+                    type: 'pdt_candidate',
+                    title: `Create PDT for ${explore}`,
+                    description: `${data.queryCount} slow queries averaging ${data.avgRuntime.toFixed(1)}s`,
+                    action: 'Implement PDT to pre-compute results',
+                    estimatedImprovement: '70-85%'
+                });
+            });
+        
+        return recommendations;
+    }
+
+    groupQueriesByExplore() {
+        const groups = {};
+        
+        this.actualQueries.forEach(query => {
+            const explore = `${query.model}.${query.explore}`;
+            if (!groups[explore]) {
+                groups[explore] = {
+                    queryCount: 0,
+                    totalRuntime: 0,
+                    avgRuntime: 0,
+                    maxRuntime: 0
+                };
+            }
+            
+            groups[explore].queryCount++;
+            groups[explore].totalRuntime += query.runtime_seconds || 0;
+            groups[explore].maxRuntime = Math.max(groups[explore].maxRuntime, query.runtime_seconds || 0);
+        });
+        
+        Object.keys(groups).forEach(explore => {
+            const group = groups[explore];
+            group.avgRuntime = group.queryCount > 0 
+                ? group.totalRuntime / group.queryCount 
+                : 0;
+        });
+        
+        return groups;
+    }
 
     async callGeminiAPI(prompt) {
         const axios = require('axios');
@@ -647,113 +813,113 @@ class QueryPerformanceDiagnostic {
 
 // Add this method to your QueryPerformanceDiagnostic class in diagnostic-engine.js
 
-async runFastScan() {
-    console.log('🏃‍♂️ Starting fast diagnostic scan (no AI analysis)...');
-    const startTime = Date.now();
+// async runFastScan() {
+//     console.log('🏃‍♂️ Starting fast diagnostic scan (no AI analysis)...');
+//     const startTime = Date.now();
     
-    try {
-        // Step 1: Initialize connectors
-        console.log('Step 1: Initializing connectors...');
-        const connectorResults = await this.initializeConnectors();
+//     try {
+//         // Step 1: Initialize connectors
+//         console.log('Step 1: Initializing connectors...');
+//         const connectorResults = await this.initializeConnectors();
         
-        // Step 2: Fetch only slow queries and explores (skip LookML for speed)
-        console.log('Step 2: Fetching slow queries and explores...');
-        const dataPromises = [
-            this.withTimeout(this.fetchSlowQueries(), 30000, 'slow query fetching'),
-            this.withTimeout(this.fetchExplores(), 45000, 'explore fetching')
-        ];
+//         // Step 2: Fetch only slow queries and explores (skip LookML for speed)
+//         console.log('Step 2: Fetching slow queries and explores...');
+//         const dataPromises = [
+//             this.withTimeout(this.fetchSlowQueries(), 30000, 'slow query fetching'),
+//             this.withTimeout(this.fetchExplores(), 45000, 'explore fetching')
+//         ];
         
-        const dataResults = await Promise.allSettled(dataPromises);
+//         const dataResults = await Promise.allSettled(dataPromises);
         
-        this.actualQueries = this.extractPromiseResult(dataResults[0], []);
-        this.explores = this.extractPromiseResult(dataResults[1], []);
+//         this.actualQueries = this.extractPromiseResult(dataResults[0], []);
+//         this.explores = this.extractPromiseResult(dataResults[1], []);
         
-        console.log(`Fast data collection complete:`);
-        console.log(`  - Slow Queries: ${this.actualQueries.length}`);
-        console.log(`  - Explores: ${this.explores.length}`);
+//         console.log(`Fast data collection complete:`);
+//         console.log(`  - Slow Queries: ${this.actualQueries.length}`);
+//         console.log(`  - Explores: ${this.explores.length}`);
         
-        // Step 3: Basic analysis (no AI)
-        console.log('Step 3: Running basic performance analysis...');
-        const performanceResults = this.performanceAnalyzer.analyzeExplores(this.explores);
-        const healthMetrics = this.performanceAnalyzer.calculateHealthMetrics(this.explores, this.actualQueries);
-        const overallGrade = this.performanceAnalyzer.calculatePerformanceGrade(this.explores, this.actualQueries);
+//         // Step 3: Basic analysis (no AI)
+//         console.log('Step 3: Running basic performance analysis...');
+//         const performanceResults = this.performanceAnalyzer.analyzeExplores(this.explores);
+//         const healthMetrics = this.performanceAnalyzer.calculateHealthMetrics(this.explores, this.actualQueries);
+//         const overallGrade = this.performanceAnalyzer.calculatePerformanceGrade(this.explores, this.actualQueries);
         
-        const scanDuration = Date.now() - startTime;
+//         const scanDuration = Date.now() - startTime;
         
-        // Generate fast scan report
-        const report = {
-            timestamp: new Date(),
-            scanType: 'fast',
-            scanDuration: scanDuration,
-            healthMetrics: healthMetrics,
-            overallGrade: overallGrade,
+//         // Generate fast scan report
+//         const report = {
+//             timestamp: new Date(),
+//             scanType: 'fast',
+//             scanDuration: scanDuration,
+//             healthMetrics: healthMetrics,
+//             overallGrade: overallGrade,
             
-            slowQuerySummary: {
-                totalSlowQueries: this.actualQueries.length,
-                avgRuntime: this.calculateAverageRuntime(),
-                runtimeDistribution: this.getRuntimeDistribution(),
-                byModel: this.groupQueriesByModel(),
-                byPriority: this.groupQueriesByPriority(),
-                // Include queries for user selection
-                queries: this.actualQueries.map(q => ({
-                    query_id: q.query_id,
-                    slug: q.slug,
-                    runtime_seconds: q.runtime_seconds,
-                    model: q.model,
-                    explore: q.explore,
-                    dashboard_title: q.dashboard_title,
-                    user_email: q.user_email,
-                    runtimeCategory: q.runtimeCategory,
-                    optimizationPriority: q.optimizationPriority
-                }))
-            },
+//             slowQuerySummary: {
+//                 totalSlowQueries: this.actualQueries.length,
+//                 avgRuntime: this.calculateAverageRuntime(),
+//                 runtimeDistribution: this.getRuntimeDistribution(),
+//                 byModel: this.groupQueriesByModel(),
+//                 byPriority: this.groupQueriesByPriority(),
+//                 // Include queries for user selection
+//                 queries: this.actualQueries.map(q => ({
+//                     query_id: q.query_id,
+//                     slug: q.slug,
+//                     runtime_seconds: q.runtime_seconds,
+//                     model: q.model,
+//                     explore: q.explore,
+//                     dashboard_title: q.dashboard_title,
+//                     user_email: q.user_email,
+//                     runtimeCategory: q.runtimeCategory,
+//                     optimizationPriority: q.optimizationPriority
+//                 }))
+//             },
             
-            exploreAnalysis: {
-                totalExplores: this.explores.length,
-                performanceSummary: performanceResults.summary,
-                byModel: this.groupExploresByModel()
-            },
+//             exploreAnalysis: {
+//                 totalExplores: this.explores.length,
+//                 performanceSummary: performanceResults.summary,
+//                 byModel: this.groupExploresByModel()
+//             },
             
-            recommendations: {
-                immediate: this.generateImmediateRecommendations(),
-                aiAnalysisAvailable: !!process.env.GEMINI_API_KEY,
-                nextSteps: [
-                    'Review slow queries above',
-                    'Select queries for detailed AI analysis',
-                    'Focus on critical priority queries first',
-                    'Consider implementing PDTs for queries >60s'
-                ]
-            },
+//             recommendations: {
+//                 immediate: this.generateImmediateRecommendations(),
+//                 aiAnalysisAvailable: !!process.env.GEMINI_API_KEY,
+//                 nextSteps: [
+//                     'Review slow queries above',
+//                     'Select queries for detailed AI analysis',
+//                     'Focus on critical priority queries first',
+//                     'Consider implementing PDTs for queries >60s'
+//                 ]
+//             },
             
-            connectorStatus: connectorResults,
-            processingStats: {
-                queriesFound: this.actualQueries.length,
-                exploresFetched: this.explores.length,
-                scanDurationMs: scanDuration
-            }
-        };
+//             connectorStatus: connectorResults,
+//             processingStats: {
+//                 queriesFound: this.actualQueries.length,
+//                 exploresFetched: this.explores.length,
+//                 scanDurationMs: scanDuration
+//             }
+//         };
         
-        console.log(`✅ Fast scan completed in ${Math.round(scanDuration / 1000)}s`);
-        console.log(`🎯 Found ${this.actualQueries.length} slow queries for potential AI analysis`);
+//         console.log(`✅ Fast scan completed in ${Math.round(scanDuration / 1000)}s`);
+//         console.log(`🎯 Found ${this.actualQueries.length} slow queries for potential AI analysis`);
         
-        return report;
+//         return report;
         
-    } catch (error) {
-        console.error('Fast scan failed:', error);
-        const scanDuration = Date.now() - startTime;
+//     } catch (error) {
+//         console.error('Fast scan failed:', error);
+//         const scanDuration = Date.now() - startTime;
         
-        return {
-            error: error.message,
-            scanType: 'fast',
-            timestamp: new Date(),
-            scanDuration: scanDuration,
-            partialResults: {
-                queries: this.actualQueries.length,
-                explores: this.explores.length
-            }
-        };
-    }
-}
+//         return {
+//             error: error.message,
+//             scanType: 'fast',
+//             timestamp: new Date(),
+//             scanDuration: scanDuration,
+//             partialResults: {
+//                 queries: this.actualQueries.length,
+//                 explores: this.explores.length
+//             }
+//         };
+//     }
+// }
 
 generateImmediateRecommendations() {
     const recommendations = [];

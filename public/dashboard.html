@@ -33,12 +33,22 @@
         const Search = ({ className }) => <div className={`${className} flex items-center justify-center`}>🔍</div>;
         const Brain = ({ className }) => <div className={`${className} flex items-center justify-center`}>🤖</div>;
 
-        // Enhanced SQL Comparison Card Component
+        // Enhanced SQL Comparison Card Component with debugging
         const SQLComparisonCard = ({ analysis }) => {
           const [activeTab, setActiveTab] = useState('issues');
 
+          // Debug logging
+          console.log('🔍 SQLComparisonCard received analysis:', analysis);
+          console.log('🔍 Analysis structure check:', {
+            hasAnalysis: !!analysis.analysis,
+            hasIssues: !!analysis.analysis?.issues,
+            hasRecommendations: !!analysis.analysis?.recommendations,
+            directIssues: !!analysis.issues,
+            directRecommendations: !!analysis.recommendations
+          });
+
           const getSeverityColor = (severity) => {
-            switch (severity) {
+            switch (severity?.toLowerCase()) {
               case 'critical': return 'bg-red-100 text-red-800 border-red-200';
               case 'high': return 'bg-red-100 text-red-800 border-red-200';
               case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
@@ -47,43 +57,27 @@
             }
           };
 
-          const generateOptimizedSQL = (originalSQL, recommendations) => {
+          const generateOptimizedSQL = (originalSQL, issues, recommendations) => {
             let optimized = originalSQL || 'SQL not available';
             let comments = [];
+
+            // Add optimization comments based on issues and recommendations
+            if (issues && issues.length > 0) {
+              issues.forEach((issue, index) => {
+                if (issue.type === 'performance' && issue.severity === 'high') {
+                  comments.push(`-- CRITICAL ISSUE ${index + 1}: ${issue.description}`);
+                  comments.push(`-- Fix: ${issue.recommendation || 'See recommendations tab'}`);
+                }
+              });
+            }
 
             if (recommendations && recommendations.length > 0) {
               recommendations.forEach((rec, index) => {
                 if (rec.type === 'pdt_creation' || rec.title?.includes('PDT')) {
                   comments.push(`-- OPTIMIZATION ${index + 1}: ${rec.title || 'Create PDT'}`);
                   comments.push(`-- Expected improvement: ${rec.expectedImprovement || '70-85%'}`);
-                  comments.push(`-- Implementation: Create PDT view for this query pattern`);
-                }
-                
-                if (rec.action && rec.action.toLowerCase().includes('index')) {
-                  comments.push(`-- OPTIMIZATION ${index + 1}: Add database indexes`);
-                  comments.push(`-- ${rec.action}`);
-                }
-
-                if (rec.action && rec.action.toLowerCase().includes('select')) {
-                  comments.push(`-- OPTIMIZATION ${index + 1}: Optimize SELECT clause`);
-                  optimized = optimized.replace(/SELECT\s+\*/gi, 'SELECT\n  -- Specify only required columns instead of *\n  t.id, t.name, t.created_date');
                 }
               });
-            }
-
-            // Add WHERE clause optimization if missing
-            if (!optimized.toLowerCase().includes('where') && optimized.toLowerCase().includes('from')) {
-              const fromIndex = optimized.toLowerCase().indexOf('from');
-              const afterFrom = optimized.substring(fromIndex);
-              const nextClause = afterFrom.match(/(group by|order by|limit)/i);
-              
-              if (nextClause) {
-                const insertPoint = fromIndex + afterFrom.indexOf(nextClause[0]);
-                optimized = optimized.substring(0, insertPoint) + 
-                           '\nWHERE\n  -- Add filtering conditions to reduce data scanned\n  created_date >= CURRENT_DATE - INTERVAL 30 DAY\n  AND status = \'active\'\n' + 
-                           optimized.substring(insertPoint);
-                comments.push('-- OPTIMIZATION: Added WHERE clause to limit data scanning');
-              }
             }
 
             return {
@@ -124,38 +118,20 @@
     sql: \${TABLE}.date_day ;;
   }
   
-  dimension: user_id {
-    type: string
-    sql: \${TABLE}.user_id ;;
-  }
-  
-  dimension: category {
-    type: string
-    sql: \${TABLE}.category ;;
-  }
-  
   measure: total_events {
     type: sum
     sql: \${TABLE}.event_count ;;
     label: "Total Events"
   }
-  
-  measure: total_amount {
-    type: sum
-    sql: \${TABLE}.total_amount ;;
-    value_format_name: usd
-  }
-  
-  measure: average_amount {
-    type: average
-    sql: \${TABLE}.avg_amount ;;
-    value_format_name: usd
-  }
 }`;
           };
 
-          const optimizedSQLResult = analysis.analysis?.recommendations ? 
-            generateOptimizedSQL(analysis.originalSQL || analysis.sql, analysis.analysis.recommendations) : null;
+          // Handle both nested analysis and direct properties
+          const issues = analysis.analysis?.issues || analysis.issues || [];
+          const recommendations = analysis.analysis?.recommendations || analysis.recommendations || [];
+          const originalSQL = analysis.originalSQL || analysis.sql || '';
+          
+          const optimizedSQLResult = generateOptimizedSQL(originalSQL, issues, recommendations);
 
           return (
             <div className="bg-white rounded-lg shadow-lg border border-gray-200 mb-6">
@@ -168,7 +144,7 @@
                   </h4>
                   <div className="flex items-center space-x-2">
                     <span className="bg-red-100 text-red-800 text-sm px-3 py-1 rounded-full font-medium">
-                      {analysis.runtime}s runtime
+                      {analysis.runtime || analysis.runtime_seconds || 'N/A'}s runtime
                     </span>
                     {analysis.overallPriority && (
                       <span className={`text-sm px-3 py-1 rounded-full font-medium ${getSeverityColor(analysis.overallPriority)}`}>
@@ -178,7 +154,7 @@
                   </div>
                 </div>
                 <div className="text-sm text-gray-600 mt-1">
-                  {analysis.model}.{analysis.explore} • {analysis.dashboard || 'No dashboard'}
+                  {analysis.model}.{analysis.explore} • {analysis.dashboard || analysis.dashboard_title || 'No dashboard'}
                 </div>
               </div>
 
@@ -186,21 +162,28 @@
               <div className="border-b border-gray-200">
                 <nav className="flex space-x-8 px-6">
                   {[
-                    { id: 'issues', label: '🚨 Issues' },
-                    { id: 'recommendations', label: '💡 Recommendations' },
+                    { id: 'issues', label: '🚨 Issues', count: issues.length },
+                    { id: 'recommendations', label: '💡 Recommendations', count: recommendations.length },
                     { id: 'sql-comparison', label: '⚡ SQL Optimization' },
                     { id: 'lookml', label: '🏗️ LookML Code' }
                   ].map((tab) => (
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
-                      className={`py-4 border-b-2 font-medium text-sm ${
+                      className={`py-4 border-b-2 font-medium text-sm flex items-center space-x-1 ${
                         activeTab === tab.id
                           ? 'border-purple-500 text-purple-600'
                           : 'border-transparent text-gray-500 hover:text-gray-700'
                       }`}
                     >
-                      {tab.label}
+                      <span>{tab.label}</span>
+                      {tab.count !== undefined && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          activeTab === tab.id ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {tab.count}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </nav>
@@ -407,6 +390,8 @@
               .filter(q => selectedQueries.has(q.query_id));
             
             try {
+              console.log('🔍 Sending queries for analysis:', queries.map(q => q.slug));
+              
               const response = await fetch('/api/diagnostic/analyze-batch', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -414,13 +399,18 @@
               });
               
               const data = await response.json();
+              console.log('📊 Received analysis response:', data);
               
               if (response.ok) {
-                setAiAnalysisResults(data.analyses || []);
+                console.log('✅ Analysis successful, setting results:', (data.analyses || data.results)?.length || 0, 'analyses');
+                // Backend returns data in 'results' field, not 'analyses'
+                setAiAnalysisResults(data.results || data.analyses || []);
               } else {
+                console.error('❌ Analysis failed:', data.error);
                 setError(data.error || 'AI analysis failed');
               }
             } catch (error) {
+              console.error('❌ Analysis request failed:', error.message);
               setError(error.message);
             } finally {
               setPhase2Loading(false);
@@ -428,7 +418,7 @@
           };
 
           const getSeverityColor = (severity) => {
-            switch (severity) {
+            switch (severity?.toLowerCase()) {
               case 'critical': return 'bg-red-100 text-red-800';
               case 'high': return 'bg-red-100 text-red-800';
               case 'medium': return 'bg-yellow-100 text-yellow-800';
@@ -485,20 +475,20 @@
                       {/* Summary Cards */}
                       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div className="bg-gray-50 p-4 rounded-lg text-center">
-                          <div className={`text-3xl font-bold mb-1`}>
+                          <div className="text-3xl font-bold mb-1">
                             {scanResults.overallGrade}
                           </div>
                           <div className="text-sm text-gray-600">Overall Grade</div>
                         </div>
                         <div className="bg-red-50 p-4 rounded-lg text-center">
                           <div className="text-3xl font-bold text-red-600 mb-1">
-                            {scanResults.slowQuerySummary.totalSlowQueries}
+                            {scanResults.slowQuerySummary?.totalSlowQueries || 0}
                           </div>
                           <div className="text-sm text-gray-600">Slow Queries</div>
                         </div>
                         <div className="bg-orange-50 p-4 rounded-lg text-center">
                           <div className="text-3xl font-bold text-orange-600 mb-1">
-                            {scanResults.slowQuerySummary.avgRuntime.toFixed(1)}s
+                            {scanResults.slowQuerySummary?.avgRuntime?.toFixed(1) || 0}s
                           </div>
                           <div className="text-sm text-gray-600">Avg Runtime</div>
                         </div>
@@ -513,7 +503,10 @@
                       {/* Immediate Recommendations */}
                       {scanResults.recommendations?.immediate && scanResults.recommendations.immediate.length > 0 && (
                         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                          <h4 className="font-semibold text-yellow-800 mb-2">🚨 Immediate Actions Required</h4>
+                          <h4 className="font-semibold text-yellow-800 mb-2 flex items-center space-x-2">
+                            <AlertTriangle className="w-5 h-5" />
+                            <span>Immediate Actions Required</span>
+                          </h4>
                           {scanResults.recommendations.immediate.map((rec, i) => (
                             <div key={i} className="mb-2 last:mb-0">
                               <div className="font-medium text-yellow-800">{rec.title}</div>
@@ -545,15 +538,17 @@
                     <div className="flex flex-wrap gap-2 mb-4">
                       <button
                         onClick={() => selectTop(3)}
-                        className="bg-red-100 hover:bg-red-200 text-red-800 px-3 py-2 rounded text-sm transition-colors"
+                        className="bg-red-100 hover:bg-red-200 text-red-800 px-3 py-2 rounded text-sm transition-colors flex items-center space-x-1"
                       >
-                        🔥 Select Top 3 Slowest
+                        <span>🔥</span>
+                        <span>Select Top 3 Slowest</span>
                       </button>
                       <button
                         onClick={() => selectTop(5)}
-                        className="bg-orange-100 hover:bg-orange-200 text-orange-800 px-3 py-2 rounded text-sm transition-colors"
+                        className="bg-orange-100 hover:bg-orange-200 text-orange-800 px-3 py-2 rounded text-sm transition-colors flex items-center space-x-1"
                       >
-                        ⚡ Select Top 5
+                        <span>⚡</span>
+                        <span>Select Top 5</span>
                       </button>
                       <button
                         onClick={() => {
@@ -561,9 +556,10 @@
                             .filter(q => q.runtimeCategory === 'critical');
                           setSelectedQueries(new Set(criticalQueries.map(q => q.query_id)));
                         }}
-                        className="bg-red-100 hover:bg-red-200 text-red-800 px-3 py-2 rounded text-sm transition-colors"
+                        className="bg-red-100 hover:bg-red-200 text-red-800 px-3 py-2 rounded text-sm transition-colors flex items-center space-x-1"
                       >
-                        🚨 Select Critical Only
+                        <span>🚨</span>
+                        <span>Select Critical Only</span>
                       </button>
                       <button
                         onClick={analyzeSelectedQueries}
@@ -588,42 +584,42 @@
                     <div className="space-y-2 max-h-96 overflow-y-auto">
                       {scanResults.slowQuerySummary.queries
                         .sort((a, b) => b.runtime_seconds - a.runtime_seconds)
-                        .map((query) => (
-                        <div key={query.query_id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-3 flex-1">
-                              <input
-                                type="checkbox"
-                                checked={selectedQueries.has(query.query_id)}
-                                onChange={() => toggleQuery(query.query_id)}
-                                className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium text-gray-900 truncate">
-                                  {query.slug || query.query_id}
-                                </div>
-                                <div className="text-sm text-gray-500">
-                                  {query.model}.{query.explore} • {query.dashboard_title || 'No dashboard'} • {query.user_email}
+                        .map((query, index) => (
+                          <div key={`${query.query_id}-${index}`} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-3 flex-1">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedQueries.has(query.query_id)}
+                                  onChange={() => toggleQuery(query.query_id)}
+                                  className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium text-gray-900 truncate">
+                                    {query.slug || query.query_id}
+                                  </div>
+                                  <div className="text-sm text-gray-500">
+                                    {query.model}.{query.explore} • {query.dashboard_title || 'No dashboard'} • {query.user_email}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <span className={`px-2 py-1 rounded text-sm font-medium ${getRuntimeColor(query.runtimeCategory)}`}>
-                                {query.runtime_seconds.toFixed(1)}s
-                              </span>
-                              <span className={`px-2 py-1 rounded text-xs ${getSeverityColor(query.optimizationPriority)}`}>
-                                {query.optimizationPriority}
-                              </span>
+                              <div className="flex items-center space-x-2">
+                                <span className={`px-2 py-1 rounded text-sm font-medium ${getRuntimeColor(query.runtimeCategory)}`}>
+                                  {query.runtime_seconds.toFixed(1)}s
+                                </span>
+                                <span className={`px-2 py-1 rounded text-xs ${getSeverityColor(query.optimizationPriority)}`}>
+                                  {query.optimizationPriority}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* AI Analysis Results with Enhanced SQL Comparison */}
+              {/* AI Analysis Results with Enhanced SQL Comparison - This is where the 4-tab display appears! */}
               {aiAnalysisResults.length > 0 && (
                 <div className="bg-white rounded-lg shadow">
                   <div className="px-6 py-4 border-b border-gray-200">
@@ -660,7 +656,7 @@
                       </div>
                     </div>
 
-                    {/* Individual Query Results with SQL Comparison */}
+                    {/* Individual Query Results with 4-Tab SQL Comparison */}
                     {aiAnalysisResults.map((result, index) => (
                       <SQLComparisonCard key={index} analysis={result} />
                     ))}
@@ -727,6 +723,12 @@
                 limit: 10
               }, null, 2)
             },
+            projects: {
+              testType: 'api',
+              apiEndpoint: '/api/4.0/projects',
+              httpMethod: 'GET',
+              arguments: '{}'
+            },
             test_connection: {
               testType: 'mcp',
               toolName: 'list_tools',
@@ -755,7 +757,7 @@
               let result;
               
               if (testType === 'mcp') {
-                result = await fetch('/api/test-mcp-tool', {
+                result = await fetch('/api/test-mcp', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -819,7 +821,7 @@
 
           return (
             <div className="space-y-6">
-              {/* API Testing Interface */}
+              {/* Header */}
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-center space-x-3 mb-4">
                   <Code className="w-6 h-6 text-blue-600" />
@@ -830,7 +832,7 @@
                 </div>
 
                 {/* Quick Test Buttons */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
                   <button
                     onClick={() => loadPredefinedTest('get_models')}
                     className="p-3 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg text-sm text-blue-800 transition-colors"
@@ -838,10 +840,22 @@
                     📋 Get All Models
                   </button>
                   <button
+                    onClick={() => loadPredefinedTest('get_specific_model')}
+                    className="p-3 bg-green-50 hover:bg-green-100 border border-green-200 rounded-lg text-sm text-green-800 transition-colors"
+                  >
+                    🎯 Get Specific Model
+                  </button>
+                  <button
                     onClick={() => loadPredefinedTest('slow_queries')}
                     className="p-3 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg text-sm text-red-800 transition-colors"
                   >
                     🐌 Slow Queries
+                  </button>
+                  <button
+                    onClick={() => loadPredefinedTest('projects')}
+                    className="p-3 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg text-sm text-purple-800 transition-colors"
+                  >
+                    📁 Get Projects
                   </button>
                   <button
                     onClick={() => loadPredefinedTest('test_connection')}
@@ -865,7 +879,7 @@
                     </select>
                   </div>
 
-                  {testType === 'mcp' && (
+                  {testType === 'mcp' ? (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Tool Name</label>
                       <input
@@ -876,6 +890,32 @@
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">API Endpoint</label>
+                        <input
+                          type="text"
+                          value={apiEndpoint}
+                          onChange={(e) => setApiEndpoint(e.target.value)}
+                          placeholder="e.g., /api/4.0/lookml_models"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">HTTP Method</label>
+                        <select
+                          value={httpMethod}
+                          onChange={(e) => setHttpMethod(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="GET">GET</option>
+                          <option value="POST">POST</option>
+                          <option value="PUT">PUT</option>
+                          <option value="DELETE">DELETE</option>
+                        </select>
+                      </div>
+                    </>
                   )}
                 </div>
 
@@ -932,12 +972,68 @@
                     </div>
                   </div>
 
+                  {/* Response Tabs */}
+                  <div className="border-b border-gray-200">
+                    <nav className="flex space-x-8 px-6">
+                      {['response', 'request', 'timing'].map((tab) => (
+                        <button
+                          key={tab}
+                          onClick={() => setSelectedTab(tab)}
+                          className={`py-4 border-b-2 font-medium text-sm ${
+                            selectedTab === tab
+                              ? 'border-blue-500 text-blue-600'
+                              : 'border-transparent text-gray-500 hover:text-gray-700'
+                          }`}
+                        >
+                          {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                        </button>
+                      ))}
+                    </nav>
+                  </div>
+
+                  {/* Tab Content */}
                   <div className="p-6">
-                    <div className="bg-gray-50 rounded-lg p-4 max-h-96 overflow-y-auto">
-                      <pre className="text-sm text-gray-800 whitespace-pre-wrap">
-                        {JSON.stringify(response.data, null, 2)}
-                      </pre>
-                    </div>
+                    {selectedTab === 'response' && (
+                      <div className="bg-gray-50 rounded-lg p-4 max-h-96 overflow-y-auto">
+                        <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+                          {JSON.stringify(response.data, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+
+                    {selectedTab === 'request' && (
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+{`Request Type: ${response.request.type.toUpperCase()}
+${response.request.type === 'mcp' ? 'Tool Name: ' + response.request.toolName : 'Endpoint: ' + response.request.endpoint}
+${response.request.type === 'api' ? 'Method: ' + response.request.method : ''}
+Arguments/Body:
+${response.request.arguments}`}
+                        </pre>
+                      </div>
+                    )}
+
+                    {selectedTab === 'timing' && (
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-blue-600">{response.timing.duration}ms</div>
+                            <div className="text-sm text-gray-600">Total Duration</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-green-600">
+                              {response.timing.duration < 1000 ? 'Fast' : 
+                               response.timing.duration < 3000 ? 'Normal' : 'Slow'}
+                            </div>
+                            <div className="text-sm text-gray-600">Performance</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-purple-600">{response.status}</div>
+                            <div className="text-sm text-gray-600">Status</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1012,6 +1108,96 @@
             </div>
           );
 
+          const SQLAnalysisCard = ({ analysis }) => {
+            const [showOriginalSQL, setShowOriginalSQL] = useState(false);
+            
+            return (
+              <div className="bg-white rounded-lg shadow p-6 mb-4 border-l-4 border-purple-500">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-lg font-semibold text-gray-800 flex items-center space-x-2">
+                    <Code className="w-5 h-5 text-purple-600" />
+                    <span>Query {analysis.queryId} - Analysis</span>
+                  </h4>
+                  <div className="flex items-center space-x-2">
+                    <span className="bg-red-100 text-red-800 text-sm px-3 py-1 rounded-full">
+                      {analysis.runtime}s runtime
+                    </span>
+                    {analysis.overallPriority && (
+                      <span className={`text-sm px-3 py-1 rounded-full ${getSeverityColor(analysis.overallPriority)}`}>
+                        {analysis.overallPriority} priority
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <button
+                    onClick={() => setShowOriginalSQL(!showOriginalSQL)}
+                    className="flex items-center space-x-2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
+                  >
+                    <Database className="w-4 h-4" />
+                    <span>{showOriginalSQL ? 'Hide' : 'View'} Original SQL Query</span>
+                    <span 
+                      className="transform transition-transform duration-200"
+                      style={{ transform: showOriginalSQL ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                    >
+                      ▼
+                    </span>
+                  </button>
+                  
+                  {showOriginalSQL && (
+                    <div className="mt-3 border rounded-lg overflow-hidden">
+                      <div className="bg-gray-800 text-white px-3 py-2 text-sm font-medium">
+                        Original SQL Query ({analysis.model || 'Unknown'}.{analysis.explore || 'Unknown'})
+                      </div>
+                      <div className="bg-gray-50 p-4 max-h-64 overflow-y-auto">
+                        <pre className="text-sm text-gray-800 whitespace-pre-wrap">
+                          {analysis.sql || analysis.originalSQL || 'SQL query not available'}
+                        </pre>
+                      </div>
+                      {(analysis.dashboard || analysis.user) && (
+                        <div className="bg-blue-50 px-3 py-2 text-xs text-blue-700 border-t">
+                          {analysis.dashboard && `Dashboard: ${analysis.dashboard}`}
+                          {analysis.dashboard && analysis.user && ' | '}
+                          {analysis.user && `User: ${analysis.user}`}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {analysis.issues && analysis.issues.length > 0 && (
+                  <div className="mb-4">
+                    <h5 className="font-medium text-gray-700 mb-2">Issues Identified:</h5>
+                    <ul className="space-y-2">
+                      {analysis.issues.map((issue, i) => (
+                        <li key={i} className={`p-2 rounded ${getSeverityColor(issue.severity)}`}>
+                          <strong>{issue.type.replace(/_/g, ' ').toUpperCase()}:</strong> {issue.description}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {analysis.recommendations && analysis.recommendations.length > 0 && (
+                  <div className="mb-4">
+                    <h5 className="font-medium text-gray-700 mb-2">Recommendations:</h5>
+                    <ul className="space-y-2">
+                      {analysis.recommendations.map((rec, i) => (
+                        <li key={i} className="p-2 bg-green-50 rounded border-l-4 border-green-400">
+                          <strong>{rec.type.replace(/_/g, ' ').toUpperCase()}:</strong> {rec.action}
+                          <div className="text-sm text-green-700 mt-1">
+                            Expected: {rec.expectedImprovement} | Effort: {rec.effort}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            );
+          };
+
           // Tab content components
           const renderTabContent = () => {
             switch (selectedTab) {
@@ -1055,6 +1241,209 @@
                         description="Access controls and compliance"
                       />
                     </div>
+
+                    {/* Summary Stats */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                      <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-600">Slow Queries Found</p>
+                            <p className="text-3xl font-bold text-red-600">
+                              {diagnosticResults.slowQueryAnalysis?.totalSlowQueries || 0}
+                            </p>
+                          </div>
+                          <div className="text-4xl">🐌</div>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-2">Queries taking >5 seconds</div>
+                      </div>
+                      
+                      <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-600">AI SQL Analysis</p>
+                            <p className="text-3xl font-bold text-purple-600">
+                              {diagnosticResults.slowQueryAnalysis?.sqlQueriesAnalyzed || 0}
+                            </p>
+                          </div>
+                          <div className="text-4xl">🤖</div>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-2">With detailed optimizations</div>
+                      </div>
+
+                      <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-600">Potential Speedup</p>
+                            <p className="text-3xl font-bold text-green-600">
+                              {diagnosticResults.slowQueryAnalysis?.potentialImprovement || 'N/A'}
+                            </p>
+                          </div>
+                          <div className="text-4xl">⚡</div>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-2">Average improvement estimate</div>
+                      </div>
+
+                      <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-600">Total Issues</p>
+                            <p className="text-3xl font-bold text-orange-600">
+                              {diagnosticResults.totalIssuesFound || 0}
+                            </p>
+                          </div>
+                          <div className="text-4xl">⚠️</div>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-2">Across all categories</div>
+                      </div>
+                    </div>
+
+                    {/* Enhanced Features Status */}
+                    {diagnosticResults.enhancedFeatures && (
+                      <div className="bg-white rounded-lg shadow">
+                        <div className="px-6 py-4 border-b border-gray-200">
+                          <h3 className="text-lg font-semibold text-gray-800">Enhanced Analysis Features</h3>
+                          <p className="text-sm text-gray-600">Advanced diagnostic capabilities</p>
+                        </div>
+                        <div className="p-6">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                            <div className="text-center">
+                              <div className={`text-3xl mb-2 ${diagnosticResults.enhancedFeatures.sqlAnalysis ? 'text-green-500' : 'text-red-500'}`}>
+                                {diagnosticResults.enhancedFeatures.sqlAnalysis ? '✅' : '❌'}
+                              </div>
+                              <div className="text-sm font-medium">SQL Analysis</div>
+                              <div className="text-xs text-gray-500">Before/After Code</div>
+                            </div>
+                            <div className="text-center">
+                              <div className={`text-3xl mb-2 ${diagnosticResults.enhancedFeatures.specificRecommendations ? 'text-green-500' : 'text-red-500'}`}>
+                                {diagnosticResults.enhancedFeatures.specificRecommendations ? '✅' : '❌'}
+                              </div>
+                              <div className="text-sm font-medium">Specific Recommendations</div>
+                              <div className="text-xs text-gray-500">Actionable optimizations</div>
+                            </div>
+                            <div className="text-center">
+                              <div className={`text-3xl mb-2 ${diagnosticResults.enhancedFeatures.lookmlOptimizations ? 'text-green-500' : 'text-red-500'}`}>
+                                {diagnosticResults.enhancedFeatures.lookmlOptimizations ? '✅' : '❌'}
+                              </div>
+                              <div className="text-sm font-medium">LookML Optimization</div>
+                              <div className="text-xs text-gray-500">Aggregate tables & PDTs</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-3xl mb-2 text-green-500">✅</div>
+                              <div className="text-sm font-medium">MCP Integration</div>
+                              <div className="text-xs text-gray-500">Real-time data access</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+
+              case 'query-analysis':
+                if (!diagnosticResults) return <div className="text-center py-8 text-gray-500">No analysis data available</div>;
+                return (
+                  <div className="space-y-6">
+                    {diagnosticResults.queryAnalysis && diagnosticResults.queryAnalysis.length > 0 ? (
+                      <div className="bg-white rounded-lg shadow">
+                        <div className="px-6 py-4 border-b border-gray-200">
+                          <h3 className="text-lg font-semibold text-gray-800">SQL Query Analysis</h3>
+                          <p className="text-sm text-gray-600">Detailed analysis of slow queries</p>
+                        </div>
+                        <div className="p-6">
+                          {diagnosticResults.queryAnalysis.map((analysis, index) => (
+                            <SQLAnalysisCard key={index} analysis={analysis} />
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        No query analysis available. Run a diagnostic to analyze queries.
+                      </div>
+                    )}
+                  </div>
+                );
+
+              case 'issues':
+                if (!diagnosticResults || !diagnosticResults.detailedIssues) {
+                  return <div className="text-center py-8 text-gray-500">No issues data available</div>;
+                }
+                return (
+                  <div className="bg-white rounded-lg shadow">
+                    <div className="px-6 py-4 border-b border-gray-200">
+                      <h3 className="text-lg font-semibold text-gray-800">All Issues ({diagnosticResults.totalIssuesFound || 0})</h3>
+                    </div>
+                    <div className="divide-y divide-gray-200">
+                      {diagnosticResults.detailedIssues.length > 0 ? diagnosticResults.detailedIssues.map((issue, index) => (
+                        <div key={index} className="p-6">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-3 mb-2">
+                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(issue.severity)}`}>
+                                  {(issue.severity || 'unknown').toUpperCase()}
+                                </span>
+                                <span className="text-xs text-gray-500 uppercase tracking-wide">{issue.type || 'general'}</span>
+                              </div>
+                              <h4 className="font-medium text-gray-900 mb-1">{issue.dashboard || issue.item || 'Unknown'}</h4>
+                              <p className="text-sm text-gray-600 mb-2">{issue.issue || 'No description available'}</p>
+                              <div className="bg-blue-50 p-3 rounded-md">
+                                <p className="text-sm text-blue-800">
+                                  <strong>Recommendation:</strong> {issue.recommendation || 'No recommendation available'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )) : (
+                        <div className="p-6 text-center text-gray-500">No issues found</div>
+                      )}
+                    </div>
+                  </div>
+                );
+
+              case 'recommendations':
+                if (!diagnosticResults || !diagnosticResults.aiRecommendations) {
+                  return <div className="text-center py-8 text-gray-500">No recommendations available</div>;
+                }
+                return (
+                  <div className="space-y-8">
+                    <div className="bg-white rounded-lg shadow">
+                      <div className="px-6 py-4 border-b border-gray-200">
+                        <h3 className="text-lg font-semibold text-gray-800">Priority Actions</h3>
+                      </div>
+                      <div className="p-6 space-y-6">
+                        {diagnosticResults.aiRecommendations.priorities && diagnosticResults.aiRecommendations.priorities.length > 0 ? 
+                          diagnosticResults.aiRecommendations.priorities.map((priority, index) => (
+                            <div key={index} className="border-l-4 border-purple-500 pl-6">
+                              <div className="flex items-center space-x-2 mb-2">
+                                <span className="bg-purple-100 text-purple-800 text-xs font-medium px-2 py-1 rounded-full">
+                                  Priority #{priority.priority}
+                                </span>
+                              </div>
+                              <h4 className="text-lg font-semibold text-gray-800 mb-2">{priority.title}</h4>
+                              <p className="text-gray-600 mb-3">{priority.description}</p>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                                <div className="bg-green-50 p-3 rounded">
+                                  <span className="font-medium text-green-800">Impact:</span>
+                                  <span className="ml-1 text-green-700">{priority.estimatedImpact || 'Unknown'}</span>
+                                </div>
+                                <div className="bg-blue-50 p-3 rounded">
+                                  <span className="font-medium text-blue-800">Effort:</span>
+                                  <span className="ml-1 text-blue-700">{priority.estimatedEffort || 'Unknown'}</span>
+                                </div>
+                                <div className="bg-orange-50 p-3 rounded">
+                                  <span className="font-medium text-orange-800">Timeline:</span>
+                                  <span className="ml-1 text-orange-700">{priority.timeframe || 'Unknown'}</span>
+                                </div>
+                              </div>
+                            </div>
+                          )) : (
+                            <div className="text-center text-gray-500 py-8">
+                              No recommendations available. Run a diagnostic to generate recommendations.
+                            </div>
+                          )
+                        }
+                      </div>
+                    </div>
                   </div>
                 );
 
@@ -1062,7 +1451,7 @@
                 return <APITestingTab />;
 
               default:
-                return <div className="text-center py-8 text-gray-500">Feature coming soon...</div>;
+                return <div className="text-center py-8 text-gray-500">Tab content coming soon...</div>;
             }
           };
 
@@ -1132,6 +1521,9 @@
                     {[
                       { id: 'two-phase', label: 'Two-Phase Diagnostic', icon: Search },
                       { id: 'overview', label: 'Overview', icon: Activity },
+                      { id: 'query-analysis', label: 'SQL Analysis', icon: Code },
+                      { id: 'issues', label: 'Issues', icon: AlertTriangle },
+                      { id: 'recommendations', label: 'Recommendations', icon: Target },
                       { id: 'api-testing', label: 'API Testing', icon: Settings }
                     ].map(({ id, label, icon: Icon }) => (
                       <button
@@ -1159,7 +1551,7 @@
               <div className="bg-white border-t mt-12">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                   <div className="flex items-center justify-between text-sm text-gray-600">
-                    <span>Enhanced with Two-Phase Diagnostics & SQL Optimization</span>
+                    <span>Enhanced with Two-Phase Analysis & AI-Powered SQL Optimization</span>
                     <span>Built for Looker Hackathon 2025</span>
                   </div>
                 </div>

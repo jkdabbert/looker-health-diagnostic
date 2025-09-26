@@ -1,7 +1,7 @@
 {
   "name": "looker-health-diagnostic-enhanced",
-  "version": "2.0.0",
-  "description": "AI-powered Looker health evaluation system with MCP integration, pagination, and query analysis",
+  "version": "2.1.0",
+  "description": "AI-powered Looker health evaluation system with BigQuery optimization and MCP integration",
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
@@ -9,8 +9,11 @@
     "test": "node test/test-diagnostic.js",
     "test-mcp": "node scripts/test-mcp.js",
     "test-ai": "node test/test-ai-analysis.js",
+    "test-bigquery": "node test/test-bigquery-integration.js",
+    "test-bigquery-api": "node test/test-bigquery-integration.js --api-only",
     "setup": "npm install && node scripts/setup.js",
     "setup-enhanced": "npm install && node scripts/setup-enhanced.js",
+    "setup-bigquery": "node scripts/setup-bigquery.js",
     "dashboard": "concurrently \"npm run dev\" \"npm run serve-dashboard\"",
     "serve-dashboard": "npx http-server public -p 3001 -o",
     "build": "echo 'Building enhanced dashboard...' && cp src/dashboard.html public/dashboard.html",
@@ -24,12 +27,14 @@
     "docker:run": "docker run -p 3000:3000 --env-file .env looker-health-diagnostic-enhanced",
     "demo": "USE_MOCK_DATA=true npm run dev",
     "demo:ai": "USE_MOCK_DATA=true ENABLE_AI_RECOMMENDATIONS=true npm run dev",
+    "demo:bigquery": "USE_MOCK_DATA=true GCP_PROJECT_ID=demo npm run dev",
     "benchmark": "node test/benchmark-performance.js",
     "docs": "jsdoc src/ -d docs/",
     "health-check": "curl -f http://localhost:3000/api/health || exit 1"
   },
   "keywords": [
     "looker",
+    "bigquery",
     "mcp",
     "health",
     "diagnostic",
@@ -40,11 +45,15 @@
     "pagination",
     "query-analysis",
     "lookml",
-    "performance"
+    "performance",
+    "optimization",
+    "cost-analysis"
   ],
   "author": "Your Name <your.email@example.com>",
   "license": "MIT",
   "dependencies": {
+    "@google-cloud/bigquery": "^7.9.4",
+    "@google-cloud/storage": "^7.17.1",
     "@looker/sdk": "^23.16.0",
     "@looker/sdk-node": "^23.16.0",
     "axios": "^1.12.2",
