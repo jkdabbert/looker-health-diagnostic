@@ -198,4 +198,7 @@ This project is developed for the Looker Hackathon 2025.
 ## Support
 
 For issues or questions:
-1. Check the tro
+1. Check the troubleshooting section above
+2. Review browser console for error messages
+3. Verify backend API connectivity
+4. Check that all required files are present and correctly referenced
